@@ -36,6 +36,7 @@ void DoSendExperiment(int msgSize, int batchSize, int numIter) {
 			//MPI_Send(msg[j], msgSize, MPI_CHAR, 1 /*destination */, uniqueTag++ /*tag*/, MPI_COMM_WORLD);
 		}	
 		MPI_Waitall(batchSize, request, status);
+		uniqueTag = 0;
 	}
 	gettimeofday(&end, 0);
 	designatedReceiverTime = TIME_SPENT(start, end);
@@ -48,6 +49,7 @@ void DoSendExperiment(int msgSize, int batchSize, int numIter) {
                         //MPI_Send(msg[j], msgSize, MPI_CHAR, 1 /*destination */, uniqueTag++ /*tag*/, MPI_COMM_WORLD);
                 }
                 MPI_Waitall(batchSize, request, status);
+		uniqueTag = 0;
         }
 	gettimeofday(&end, 0);
 	anyReceiverTime = TIME_SPENT(start, end);
@@ -138,7 +140,7 @@ int main(int argc, char ** argv){
 		cout<<endl<<"batchSize"<<"\t"<<"msgSize"<<"\t"<<"designatedReceiverTime"<<"\t"<<"anyReceiverTime";
 
 
-	for(int msgSize = 1; msgSize <= (1<<20); msgSize = (msgSize << 1)) {
+	for(int msgSize = 1; msgSize <= (1<<13); msgSize = (msgSize << 1)) {
 		// allocate message array
 		AllocateMsgBuffer(msgSize);
 		for(int batchSize = 1; batchSize <= MAX_BATCH_SIZE; batchSize = (batchSize << 1)) {

@@ -1,0 +1,11 @@
+#PBS -q regular
+#PBS -l mppwidth=48
+#PBS -l walltime=00:35:00 
+#PBS -N my_job 
+#PBS -j oe  
+
+cd $PBS_O_WORKDIR  
+echo "spreadout"
+aprun -n 2 -N 1 ./a.out
+echo "collocated"
+aprun -n 2 -N 2 ./a.out

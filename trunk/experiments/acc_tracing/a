@@ -1,0 +1,1 @@
+addr2line -C -f -e ~/nwchem-6.3_opt/bin/LINUX64/nwchem_dump $*
