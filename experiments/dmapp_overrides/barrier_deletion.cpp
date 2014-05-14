@@ -70,6 +70,8 @@ extern "C" {
 #define ALL_REDUCE_GET_INSTANCE(buffer) ((buffer) & 0xffffffff)
     
     
+//#define ENABLE_LOGGING
+
     
 //#define VERBOSE
     
@@ -79,10 +81,17 @@ extern "C" {
         unordered_map<uint64_t, uint64_t> barrierSkipCache;
         unordered_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
         uint64_t barrierInstance;
+        uint64_t enabledBarrierInstance;
         uint64_t skippable;
         uint64_t reSync;
         uint64_t badDecison;
         uint64_t lastParticipatedBarrier;
+        bool isEnabled;
+        
+        void Enable() { isEnabled = true;}
+        void Disable() { isEnabled = false;}
+        bool IsEnabled() { return isEnabled;}
+
         
         void SetLastParticipatedBarrier( uint64_t lpb) { lastParticipatedBarrier = lpb; }
         uint64_t GetLastParticipatedBarrier() { return lastParticipatedBarrier;}
@@ -97,7 +106,15 @@ extern "C" {
         uint64_t IncrementReSync() {return reSync ++;}
         uint64_t GetReSync() { return reSync;}
         
-        uint64_t IncrementBarrierInstance() { return barrierInstance ++;}
+        uint64_t IncrementEnabledBarrierInstance() {
+            uint64_t val = enabledBarrierInstance;
+            if (IsEnabled())
+                enabledBarrierInstance ++;
+            return val;
+        }
+        uint64_t GetEnabledBarrierInstance() { return enabledBarrierInstance;}
+        
+        uint64_t IncrementBarrierInstance() { IncrementEnabledBarrierInstance(); return barrierInstance ++;}
         uint64_t GetBarrierInstance() {return barrierInstance;}
         
         
@@ -128,13 +145,9 @@ extern "C" {
     
     static void DumpRedundancyMap();
     
-    static FILE * fp;
-
-    
-    __attribute__((destructor))
-    static void OnExit(){
+    static void PrintStats(){
         if(myRank == 0){
-            printf("\n Total Barriers = %lu, Skippable =%lu, reSync = %lu, bad decision = %lu", GLOBAL_STATE.GetBarrierInstance(), GLOBAL_STATE.GetSkippable(), GLOBAL_STATE.GetReSync(), GLOBAL_STATE.GetBadDecision());
+            printf("\n Total Barriers = %lu, Enabled = %lu, Skippable =%lu, reSync = %lu, bad decision = %lu", GLOBAL_STATE.GetBarrierInstance(), GLOBAL_STATE.GetEnabledBarrierInstance(), GLOBAL_STATE.GetSkippable(), GLOBAL_STATE.GetReSync(), GLOBAL_STATE.GetBadDecision());
 #ifdef VERBOSE
             //        DumpRedundancyMap();
 #endif
@@ -142,10 +155,6 @@ extern "C" {
         
         
     }
-
-    
-    
-    
     __thread bool gAccessedRemoteData;
     
 #define SKIP (10)
@@ -246,8 +255,6 @@ extern "C" {
     
     static inline void RecordInRedundancyMap(uint64_t curBarrierHash){
         RedundancyKey key = {GLOBAL_STATE.GetLastParticipatedBarrier(), curBarrierHash};
-        
-        
         RedundancyMap_t::iterator  ri = redundancyMap.find(key);
         if (ri  != redundancyMap.end()) {
             ri->second ++;
@@ -299,7 +306,6 @@ extern "C" {
     static inline void PrintBT(){
         unw_cursor_t cursor; unw_context_t uc;
         unw_word_t ip, sp;
-        
         unw_getcontext(&uc);
         unw_init_local(&cursor, &uc);
         printf("\n --------------- \n");
@@ -341,86 +347,72 @@ extern "C" {
 #endif
     
     
-    
-    
-    static  void DumpStack2(uint64_t key){
-        return;
-        
+#ifdef ENABLE_LOGGING
+    static FILE * logFilePtr;
+    static  void LogStackTrace(uint64_t key){
         assert(backtraceMap.find(key) != backtraceMap.end());
-        assert(fp);
+        assert(logFilePtr);
         vector <void *> & stack = backtraceMap[key];
         for (int i = 0; i < stack.size(); i++)
-            fprintf(fp, "\t %lx", stack[i]);
+            fprintf(logFilePtr, "\t %lx", stack[i]);
     }
     
     
-    static void OnEnd(){
-        return;
-        if (fp)
-            fclose(fp);
+    static void CloseLogFile(){
+        if (logFilePtr)
+            fclose(logFilePtr);
     }
 
+    static void CreateLogFile(int rank) {
+        assert(logFilePtr == NULL);
+        std::stringstream ss;
+        char hostname[200];
+        pid_t pid = getpid();
+        ss << "LOG_" << pid <<".log";
+        logFilePtr = fopen(ss.str().c_str(), "w");
+    }
     
     static void Log(MPI_Comm comm, uint64_t key, string s, uint64_t barInst, int status) {
-        return;
-        if(fp == NULL) {
-            // construct one
-            std::stringstream ss;
-            char hostname[200];
-            pid_t pid = getpid();
-            ss << "LOG_" << pid <<".log";
-            fp = fopen(ss.str().c_str(), "w");
-        }
         int size;
         MPI_Comm_size(comm, &size);
         int rank;
         MPI_Comm_rank(comm, &rank);
-
-        fprintf(fp, "\n SIZE= %d : RANK = %d: BARINST = %lu, KEY = %lu, STATUS = %d, %s at ",size, rank, barInst, key, status, s.c_str());
-        DumpStack2(key);
+        fprintf(logFilePtr, "\n SIZE= %d : RANK = %d: BARINST = %lu, KEY = %lu, STATUS = %d, %s at ",size, rank, barInst, key, status, s.c_str());
+        LogStackTrace(key);
     }
-    
+#else
+    static void DumpStack2(uint64_t key){}
+    static void CloseLogFile(){}
+    static void CreateLogFile(int rank) {}
+    static void Log(MPI_Comm comm, uint64_t key, string s, uint64_t barInst, int status) {}
+#endif
     
     extern int REAL_FUNCTION(MPI_Barrier) (MPI_Comm comm);
     extern int REAL_FUNCTION(MPI_Bcast)(void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm );
     extern int REAL_FUNCTION(MPI_Allgather) (const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm);
     extern int REAL_FUNCTION(MPI_Allreduce) (const void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm);
-
-    
+    extern int REAL_FUNCTION(MPI_Init) (int *argc, char ***argv);
+    extern int REAL_FUNCTION(MPI_Finalize) (void);
     
     static inline void ParticipateInBarrier(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int &retVal){
-        
         Log(comm, key, "Participating:", curBarrierInstance, gAccessedRemoteData);
-        
-        
         // Force a dmapp sync here
         dmapp_return_t t = dmapp_gsync_wait();
         assert(t == DMAPP_RC_SUCCESS);
         // We have already decided to participate for this barrier
         GLOBAL_STATE.SetLastParticipatedBarrier(key);
-        
-        /*#ifdef BUMP_BT
-         if(myRank == 0)
-         PrintBT();
-         #endif
-         */
         uint64_t recvBuf;
-        //uint64_t sendBuf = curBarrierInstance;
         uint64_t sendBuf = PARTICIPATE;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
-        
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
-        
         // Bad state! Somebody decided to skip! Should never happen.
         if (ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()) {
             printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
         }
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
-        
         //assert(recvBuf == curBarrierInstance);
         // Exit
         gAccessedRemoteData = false;
-        
     }
     
     
@@ -429,28 +421,21 @@ extern "C" {
         if(!gAccessedRemoteData){
             // The decision still holds good.
             Log(comm, key, "Skipping:", curBarrierInstance, gAccessedRemoteData);
-            
             GLOBAL_STATE.IncrementSkippable();
+            
 #ifdef VERBOSE
             RecordInRedundancyMap(key);
 #endif
             
-            /*                         #ifdef BUMP_BT
-             if(myRank == 0)
-             PrintBT();
-             #endif
-             */
-            //#define BARRIER_DEBUG
+//#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
             uint64_t recvBuf;
             //uint64_t sendBuf = curBarrierInstance;
             uint64_t sendBuf = SKIP;
             sendBuf = ALL_REDUCE_BUFFER(sendBuf);
-            
             // Ensure the assumption is not violated by any process
             retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
             assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
-            
             int size;
             MPI_Comm_size(comm, &size);
             if(ALL_REDUCE_GET_STATUS(recvBuf) == SKIP) {
@@ -464,25 +449,17 @@ extern "C" {
                 }
             }
 #endif
-            
         } else {
-            
             Log(comm, key, "Breaking:", curBarrierInstance, gAccessedRemoteData);
-            
             // I am breaking my consensus... so what if all are breaking we are still fine.
             uint64_t recvBuf;
-            //uint64_t sendBuf = curBarrierInstance;
             uint64_t sendBuf = PARTICIPATE;
             sendBuf = ALL_REDUCE_BUFFER(sendBuf);
-            
             retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
-            
-            
             if (ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()) {
                 printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
             }
             assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
-            
             if (ALL_REDUCE_GET_STATUS(recvBuf) != PARTICIPATE) {
                 // This is the worst place to be in. We can't handle this as yet.
                 if(myRank == 0) {
@@ -498,7 +475,6 @@ extern "C" {
             gAccessedRemoteData = false;
             //assert(recvBuf == curBarrierInstance);
         }
-
     }
     
     static inline void ContinueDecisionProcess(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int &retVal){
@@ -509,77 +485,100 @@ extern "C" {
         uint64_t newVal = val + 1;
         uint64_t sendBuf = gAccessedRemoteData? PARTICIPATE : newVal;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
-        
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
-        
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
-        
         if ( ALL_REDUCE_GET_STATUS(recvBuf) == newVal) {
             GLOBAL_STATE.barrierSkipCache[key] = newVal;
         } else {
             GLOBAL_STATE.barrierSkipCache[key] = PARTICIPATE;
             Log(comm, key, "VetoInDecison:", curBarrierInstance, gAccessedRemoteData);
         }
-        
     }
     
     
     static inline void HandleFirstVisit(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, int &retVal){
         Log(comm, key, "Firsttime:", curBarrierInstance, gAccessedRemoteData);
-        
         // first visit ... do all reduce
         uint64_t recvBuf;
         uint64_t sendBuf = gAccessedRemoteData? PARTICIPATE : 1;
-        
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        if(ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()){
+            printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
+        }
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
-        
         GLOBAL_STATE.barrierSkipCache[key] = ALL_REDUCE_GET_STATUS(recvBuf);
-        
-        
         if (ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE) {
             gAccessedRemoteData = false;
             Log(comm, key, "VetoOnFirstRound:", curBarrierInstance, gAccessedRemoteData);
         }
-
     }
     
+    static struct timeval t1, t2;
+    
+    #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
+    
+    static void EnableBarrierOptimization(){
+        if(myRank == 0) {
+            gettimeofday(&t1,NULL);
+            printf("\n Enabled BO\n");
+        }
+        GLOBAL_STATE.Enable();
+    }
+    // fortran interface
+    void enable_barrier_optimization_(){
+       EnableBarrierOptimization();
+    }
+
+    static void DisableAndCleanupBarrierOptimization(){
+        if(myRank == 0) {
+            printf("\n Disabled BO\n");
+        }
+        GLOBAL_STATE.Disable();
+        // Clear the history in the hash table
+        GLOBAL_STATE.barrierSkipCache.clear();
+    }
+    // fortran interface
+    void disable_and_cleanup_barrier_optimization_(){
+        DisableAndCleanupBarrierOptimization();
+    }
+    
+    static void DisableBarrierOptimization(){
+        if(myRank == 0) {
+            gettimeofday(&t2,NULL);
+            uint64_t span = TIME_SPENT(t1, t2);
+            printf("\n Disabled BO %lu \n", span);
+        }
+        GLOBAL_STATE.Disable();
+    }
+
+    // fortran interface
+    void disable_barrier_optimization_(){
+        DisableBarrierOptimization();
+    }
+
+    
     int WRAPPED_FUNCTION(MPI_Barrier) (MPI_Comm comm){
-        
-        
-        if(myRank == -1) {
-            // Get my rank
-            MPI_Comm_rank(comm, &myRank );
-            // Register my reduction op
-            MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
-#ifdef VERBOSE
-            // Register on exit function
-            if(myRank == 0)
-                atexit(DumpRedundancyMap);
-#endif
-                atexit(OnEnd);
-            }
-        
         int retVal = MPI_SUCCESS;
         // increment the barrrier instance
         uint64_t curBarrierInstance = GLOBAL_STATE.IncrementBarrierInstance();
+        
+        // Not enabled, simple do the barrier and return
+        if(!GLOBAL_STATE.IsEnabled()) {
+            return REAL_FUNCTION(MPI_Barrier)(comm);
+        }
+        
+        // Enabled, hence perform tracking / optimization
+        
 
-        
-        
 #ifdef VERBOSE
         uint64_t key = GetContextHashWithBackTrace();
 #else
         uint64_t key = GetContextHash();
 #endif
-        
-        
+
         // Is this barrier previously seen?
         GLOBAL_STATE.barrierSkipCacheIterator = GLOBAL_STATE.barrierSkipCache.find(key);
-        
-        
-        
-        // ENtry
         if(GLOBAL_STATE.barrierSkipCacheIterator != GLOBAL_STATE.barrierSkipCache.end()){
             uint64_t val = GLOBAL_STATE.barrierSkipCacheIterator->second;
             switch(val){
@@ -600,7 +599,6 @@ extern "C" {
             HandleFirstVisit(comm, key, curBarrierInstance, retVal);
         }
         return retVal;
-        
     }
     
     
@@ -616,7 +614,6 @@ extern "C" {
         // Exit
         gAccessedRemoteData = false; */
         return retVal;
-        
     }
     
     int WRAPPED_FUNCTION(MPI_Bcast)(void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm ){
@@ -630,7 +627,6 @@ extern "C" {
         // Exit
         gAccessedRemoteData = false; */
         return retVal;
-        
     }
 
     
@@ -645,7 +641,30 @@ extern "C" {
         // Exit
         gAccessedRemoteData = false; */
         return retVal;
-        
+    }
+    
+    int WRAPPED_FUNCTION(MPI_Init) (int *argc, char ***argv) {
+        int retVal = REAL_FUNCTION(MPI_Init)(argc, argv);
+        // Register my reduction op
+        MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
+        atexit(PrintStats);
+        MPI_Comm_rank(MPI_COMM_WORLD, &myRank );
+#ifdef ENABLE_LOGGING
+        CreateLogFile(myRank);
+#ifdef VERBOSE
+            // Register on exit function
+            if(myRank == 0)
+                atexit(DumpRedundancyMap);
+#endif
+            atexit(CloseLogFile);
+#endif
+        return retVal;
+    }
+
+    
+    int WRAPPED_FUNCTION(MPI_Finalize) () {
+        int retVal = REAL_FUNCTION(MPI_Finalize)();
+        return retVal;
     }
 }
 

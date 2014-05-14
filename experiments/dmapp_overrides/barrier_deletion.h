@@ -12,5 +12,8 @@
 #include<dmapp.h>
 
 extern "C" {
-extern __thread bool gAccessedRemoteData;
+    extern __thread bool gAccessedRemoteData;
+    extern void enable_barrier_optimization_();
+    extern void disable_barrier_optimization_();
+    extern void disable_and_cleanup_barrier_optimization_();
 }
