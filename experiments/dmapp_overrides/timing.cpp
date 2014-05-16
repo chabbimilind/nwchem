@@ -56,37 +56,39 @@ using namespace std;
 using namespace std::tr1;
 
 extern "C" {
-     static struct timeval t1, t2;
-    
-    #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
-    
-    static void EnableBarrierOptimization(){
-	int myRank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+    static struct timeval t1, t2;
+
+#define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
+
+    static void EnableBarrierOptimization() {
+        int myRank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+
         if(myRank == 0) {
-            gettimeofday(&t1,NULL);
+            gettimeofday(&t1, NULL);
             printf("\n Enabled BO\n");
         }
     }
     // fortran interface
-    void enable_barrier_optimization_(){
-       EnableBarrierOptimization();
+    void enable_barrier_optimization_() {
+        EnableBarrierOptimization();
     }
 
-    static void DisableBarrierOptimization(){
-	int myRank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+    static void DisableBarrierOptimization() {
+        int myRank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+
         if(myRank == 0) {
-            gettimeofday(&t2,NULL);
+            gettimeofday(&t2, NULL);
             uint64_t span = TIME_SPENT(t1, t2);
             printf("\n Disabled BO %lu \n", span);
         }
     }
 
     // fortran interface
-    void disable_barrier_optimization_(){
+    void disable_barrier_optimization_() {
         DisableBarrierOptimization();
     }
 
-  
-} 
+
+}
