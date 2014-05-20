@@ -36,5 +36,7 @@ BARRIER_DEBUG: This macro will never delete any barrier, instead on each barrier
 
 Currently, the learning phase is set to 10 (#define SKIP (10)) changing this value will change how many barriers are observed in a context before the deletion starts in that context.
 
+Note: enable_barrier_optimization_() and disable_barrier_optimization_() are two key functions to start and stop the barrier deletion logic. If they are not called by the application, nothing will be deleted. For tce_ccsd2_t_cl2o.nw TCE input, a good place to call enable_barrier_optimization() is at the start of the do loop in ccsd_energy_loc() and then disable_barrier_optimization() at the end of the loop (also place disable_barrier_optimization() before the return statement in the do loop). 
+
 
 
