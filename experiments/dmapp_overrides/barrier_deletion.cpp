@@ -72,11 +72,18 @@ extern "C" {
 
 //#define ENABLE_LOGGING
 
+#define ENABLE_REPLAY
 
 //#define VERBOSE
 
     /******** Globals variables **********/
-
+    
+#ifdef ENABLE_REPLAY
+    enum REPLAY_MODE {REPLAY_MODE_RECORD, REPLAY_MODE_REPLAY};
+#define REPLAY_SKIP 'S'
+#define REPLAY_PARTICIPATE 'P'
+#endif
+    
     struct GLOBAL_STATE_t {
         unordered_map<uint64_t, uint64_t> barrierSkipCache;
         unordered_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
@@ -149,8 +156,15 @@ extern "C" {
         uint64_t GetBarrierInstance() {
             return barrierInstance;
         }
-
-
+#ifdef ENABLE_REPLAY
+        REPLAY_MODE replayMode;
+        void SetReplayMode(REPLAY_MODE mode){
+            replayMode = mode;
+        }
+        REPLAY_MODE GetReplayMode(){
+            return replayMode;
+        }
+#endif
 
     } ;
     GLOBAL_STATE_t GLOBAL_STATE;
@@ -214,7 +228,7 @@ extern "C" {
         unw_init_local(&cursor, &uc);
         uint64_t hash = 0;
 
-        // Iterate over return addresses and sum the to get a hash
+        // Iterate over return addresses and sum them to get a hash
         while(unw_step(&cursor) > 0) {
             unw_get_reg(&cursor, UNW_REG_IP, &ip);
             /*if(first) {
@@ -223,8 +237,6 @@ extern "C" {
              } */
             hash += ip;
         }
-
-        //hash  = ((hash & 0xffffffff) << (31)) | ( ((uint64_t) sp) & 0xffffffff);
         return hash;
     }
 
@@ -606,7 +618,39 @@ extern "C" {
         DisableBarrierOptimization();
     }
 
-
+#ifdef ENABLE_REPLAY
+    vector<char> replayLog;
+    uint64_t replayIndex;
+    void WriteToReplayLog(char replayVal){
+        replayLog.push_back(replayVal);
+    }
+    
+    void WriteReplyLogToFile(){
+        FILE * replyFP = fopen("replay.txt", "w");
+        assert(replyFP);
+        for( int i = 0; i < replayLog.size(); i++) {
+            char val = replayLog[i];
+            fprintf(replyFP, "%c", val);
+        }
+        fclose(replyFP);
+    }
+    
+    void ReadReplyLogToFile(){
+        FILE * replyFP = fopen("replay.txt", "r");
+        assert(replyFP);
+        char val;
+        while((val = fgetc(replyFP)) != EOF) {
+            replayLog.push_back(val);
+        }
+        fclose(replyFP);
+    }
+    
+    
+    char GetReplayLogAtIndex(uint64_t index){
+        return replayLog[index];
+    }
+#endif
+    
     int WRAPPED_FUNCTION(MPI_Barrier)(MPI_Comm comm) {
         int retVal = MPI_SUCCESS;
         // increment the barrrier instance
@@ -616,8 +660,31 @@ extern "C" {
         if(!GLOBAL_STATE.IsEnabled()) {
             return REAL_FUNCTION(MPI_Barrier)(comm);
         }
-
+        
         // Enabled, hence perform tracking / optimization
+
+        
+#ifdef ENABLE_REPLAY
+        if (GLOBAL_STATE.GetReplayMode() == REPLAY_MODE_REPLAY){
+            // If we are in reply mode, we will return from here.
+            
+            // Replay the result
+            char replayVal = GetReplayLogAtIndex(replayIndex);
+            replayIndex++;
+            
+            switch(replayVal) {
+                case REPLAY_SKIP: {
+                    // skip barrier
+                    return MPI_SUCCESS;
+                }
+                default: {
+                    // do barrier
+                    return REAL_FUNCTION(MPI_Barrier)(comm);
+                }
+            }
+        }
+#endif
+
 #ifdef VERBOSE
         uint64_t key = GetContextHashWithBackTrace();
 #else
@@ -625,6 +692,24 @@ extern "C" {
 #endif
         // Is this barrier previously seen?
         GLOBAL_STATE.barrierSkipCacheIterator = GLOBAL_STATE.barrierSkipCache.find(key);
+
+#ifdef ENABLE_REPLAY
+        if(GLOBAL_STATE.GetReplayMode() == REPLAY_MODE_RECORD) {
+            // Write to replay log
+            // Anything other than "SKIP" is recorded as "PARTICIPATE"
+            char replayVal;
+            if(GLOBAL_STATE.barrierSkipCacheIterator != GLOBAL_STATE.barrierSkipCache.end()) {
+                uint64_t val = GLOBAL_STATE.barrierSkipCacheIterator->second;
+                switch(val) {
+                    case SKIP: replayVal = REPLAY_SKIP; break;
+                    default: replayVal = REPLAY_PARTICIPATE; break;
+                }
+            } else {
+                replayVal = REPLAY_PARTICIPATE;
+            }
+            WriteToReplayLog(replayVal);
+        }
+#endif
 
         if(GLOBAL_STATE.barrierSkipCacheIterator != GLOBAL_STATE.barrierSkipCache.end()) {
             uint64_t val = GLOBAL_STATE.barrierSkipCacheIterator->second;
@@ -700,6 +785,25 @@ extern "C" {
         MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
         atexit(PrintStats);
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+        
+#ifdef ENABLE_REPLAY
+        char * val = getenv("NWCHEM_REPLAYMODE");
+        if(val) {
+            if (strcmp(val,"record") == 0 ) {
+                GLOBAL_STATE.SetReplayMode(REPLAY_MODE_RECORD);
+                // write the replay log to a file
+                if(myRank == 0)
+                    atexit(WriteReplyLogToFile);
+            } else if (strcmp(val,"replay") == 0) {
+                ReadReplyLogToFile();
+                GLOBAL_STATE.SetReplayMode(REPLAY_MODE_REPLAY);
+            } else {
+                printf("\n Invalid NWCHEM_REPLAYMODE value %s", val);
+                exit(-1);
+            }
+        }
+#endif
+        
 #ifdef ENABLE_LOGGING
         CreateLogFile(myRank);
 #ifdef VERBOSE

@@ -1,0 +1,40 @@
+SVN location: https://nwchem.googlecode.com/svn/trunk/experiments/dmapp_overrides
+
+svn co https://nwchem.googlecode.com/svn/trunk/experiments/dmapp_overrides  dmapp_overrides
+
+Software requirements:
+1. Install libunwind from here: http://www.nongnu.org/libunwind/download.html
+2. Download NWChem version 6.3 from here: http://www.nwchem-sw.org/download.php?f=Nwchem-6.3.revision2-src.2013-10-17.tar.gz
+
+
+Building basic NWChem:
+1. Compile NWChem with “-g -fno-omit-frame-pointer”
+	For example: in config/makefile.h around line 2053, have the following 2 lines:
+	FOPTIONS += -g -fno-omit-frame-pointer
+	COPTIONS += -g -fno-omit-frame-pointer
+2. Always use PrgEnv-gnu for compilation. That is, on edison “module swap PrgEnv-intel PrgEnv-gnu”
+3. Compile NWChem to use DMAPP. An example NWChem build script is build_nwchem.sh. You need to edit hardcoded paths to your corresponding locations.
+
+
+Building barrier deletion framework:
+1. Copy “build_barrier_deletion.sh” file to $NWCHEM_ROOT/src. Make necessary edits to build_barrier_deletion.sh to have correct paths to $NWCHEM_ROOT, LIBUNWIND. This script hijacks calls to MPI_Barrier, MPI_Allreduce MPI_Allgather, MPI_Init, MPI_Finalize and DMAPP APIs. The redirected functions are present in barrier_deletion.o and dmapp_wrapped.o which need to be linked with NWChem. 
+
+2. build.sh builds the barrier deletion framework. “barrier_deletion.cpp” and “barrier_deletion.h” are the two key files. 
+  	dmapp-wrapper.py is a script that extracts DMAPP header files and produces linker wrappers (dmapp_wrapped.c) for all DMAPP APIS.
+	It also produces “wrap_scrpt” file which contains extra flags that need to be passed during linking of NWChem for linker wrapping.
+
+
+Once step #1 and #2 are correctly followed, typing “sh build.sh” should produce $NWCHEM_ROOT/bin/LINUX64/nwchem_db, which is the nwchem with our barrier deletion logic.
+
+
+Some key MACROs in barrier_deletion.cpp:
+
+ENABLE_REPLY: Will enable the code to handle record and reply logic. You need to set “export NWCHEM_REPLAYMODE=record” and do one run (it will produce replay.txt file), followed by “export NWCHEM_REPLAYMODE=reply” to reply the barrier deletion.
+
+BARRIER_DEBUG: This macro will never delete any barrier, instead on each barrier, it will make a sanity test that we never reached a bad state due to a previously made decision to skip the barrier.
+
+
+Currently, the learning phase is set to 10 (#define SKIP (10)) changing this value will change how many barriers are observed in a context before the deletion starts in that context.
+
+
+
