@@ -72,7 +72,7 @@ extern "C" {
 
 //#define ENABLE_LOGGING
 
-#define ENABLE_REPLAY
+//#define ENABLE_REPLAY
 
 //#define VERBOSE
 
