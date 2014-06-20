@@ -268,8 +268,23 @@ extern "C" {
     }
 
 
+vector<uint64_t> allCtxt;
+
+void DumpAllCtxt(){
+	if(myRank != 0)
+		return;
+	FILE * fp = fopen("allCtxt.txt","w");
+	for(int i = 0 ; i < allCtxt.size(); i++)
+		fprintf(fp, "%llu\n", allCtxt[i]);
+
+	fclose(fp);
+}
+
 
     int WRAPPED_FUNCTION(MPI_Barrier)(MPI_Comm comm) {
+//HACK HACK to get the ctxts
+uint64_t t = GetContextHash();
+allCtxt.push_back(t);
         if(GLOBAL_STATE.IsEnabled() && GLOBAL_STATE.doUnwind) {
             // unwind
             volatile uint64_t t = GetContextHash();
@@ -284,6 +299,8 @@ extern "C" {
         // Register my reduction op
         MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
         atexit(PrintStats);
+// HACK HACK
+        atexit(DumpAllCtxt);
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
         // Read env whether to do all reduce or barrier
         char* val = getenv("NWCHEM_BARRIER_TYPE");
