@@ -50,11 +50,13 @@
 #include <sstream>
 #include<dmapp.h>
 #include<mpi.h>
+#include <google/dense_hash_map>
 #include "barrier_deletion.h"
 
 
 using namespace std;
 using namespace std::tr1;
+using google::dense_hash_map;
 
 extern "C" {
 
@@ -85,8 +87,8 @@ extern "C" {
 #endif
     
     struct GLOBAL_STATE_t {
-        unordered_map<uint64_t, uint64_t> barrierSkipCache;
-        unordered_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
+        dense_hash_map<uint64_t, uint64_t> barrierSkipCache;
+        dense_hash_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
         uint64_t barrierInstance;
         uint64_t enabledBarrierInstance;
         uint64_t skippable;
@@ -625,24 +627,24 @@ extern "C" {
         replayLog.push_back(replayVal);
     }
     
-    void WriteReplyLogToFile(){
-        FILE * replyFP = fopen("replay.txt", "w");
-        assert(replyFP);
+    void WriteReplayLogToFile(){
+        FILE * replayFP = fopen("replay.txt", "w");
+        assert(replayFP);
         for( int i = 0; i < replayLog.size(); i++) {
             char val = replayLog[i];
-            fprintf(replyFP, "%c", val);
+            fprintf(replayFP, "%c", val);
         }
-        fclose(replyFP);
+        fclose(replayFP);
     }
     
-    void ReadReplyLogToFile(){
-        FILE * replyFP = fopen("replay.txt", "r");
-        assert(replyFP);
+    void ReadReplayLogToFile(){
+        FILE * replayFP = fopen("replay.txt", "r");
+        assert(replayFP);
         char val;
-        while((val = fgetc(replyFP)) != EOF) {
+        while((val = fgetc(replayFP)) != EOF) {
             replayLog.push_back(val);
         }
-        fclose(replyFP);
+        fclose(replayFP);
     }
     
     
@@ -781,6 +783,10 @@ extern "C" {
 
     int WRAPPED_FUNCTION(MPI_Init)(int* argc, char** *argv) {
         int retVal = REAL_FUNCTION(MPI_Init)(argc, argv);
+
+        // make sure dense_hash_map is initialized with empty key
+	GLOBAL_STATE.barrierSkipCache.set_empty_key(0);
+
         // Register my reduction op
         MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
         atexit(PrintStats);
@@ -793,9 +799,9 @@ extern "C" {
                 GLOBAL_STATE.SetReplayMode(REPLAY_MODE_RECORD);
                 // write the replay log to a file
                 if(myRank == 0)
-                    atexit(WriteReplyLogToFile);
+                    atexit(WriteReplayLogToFile);
             } else if (strcmp(val,"replay") == 0) {
-                ReadReplyLogToFile();
+                ReadReplayLogToFile();
                 GLOBAL_STATE.SetReplayMode(REPLAY_MODE_REPLAY);
             } else {
                 printf("\n Invalid NWCHEM_REPLAYMODE value %s", val);
