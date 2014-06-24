@@ -19,7 +19,8 @@ export BLASOPT=-lsci_gnu
 export BLAS_LIB=-lsci_gnu
 export LAPACK_LIB=-lsci_gnu
 export USE_64TO32=y
-export CFLAGS_FORGA=-g
+export CFLAGS_FORGA="-g -fno-omit-frame-pointer"
+export FFLAGS_FORGA="-g -fno-omit-frame-pointer"
 #make realclean
 #make nwchem_config
 #make 64_to_32
