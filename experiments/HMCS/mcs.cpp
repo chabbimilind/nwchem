@@ -24,8 +24,8 @@
 #define CACHE_LINE_SIZE (128)
 
 struct QNode{
-    struct QNode * volatile next;
-    volatile bool status;
+    struct QNode * volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
+    volatile bool status __attribute__((aligned(CACHE_LINE_SIZE)));
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 QNode* volatile MCSLock = NULL;
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]){
     struct timeval end;
     uint64_t elapsed;
 
-#define DOWORK
+//#define DOWORK
 
 #pragma omp parallel
     {
