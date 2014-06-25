@@ -26,8 +26,8 @@
 #define CACHE_LINE_SIZE (128)
 
 struct QNode{
-    struct QNode * volatile next;
-    volatile uint64_t status;
+    struct QNode * volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
+    volatile uint64_t status __attribute__((aligned(CACHE_LINE_SIZE)));
     QNode() : status(WAIT), next(NULL) {
         
     }
@@ -39,10 +39,10 @@ struct QNode{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 struct HMCS{
-    int threshold;
-    struct HMCS * parent;
-    struct QNode *  volatile lock;
-    struct QNode  node;
+    int threshold __attribute__((aligned(CACHE_LINE_SIZE)));
+    struct HMCS * parent __attribute__((aligned(CACHE_LINE_SIZE)));
+    struct QNode *  volatile lock __attribute__((aligned(CACHE_LINE_SIZE)));
+    struct QNode  node __attribute__((aligned(CACHE_LINE_SIZE)));
     
     inline bool IsTopLevel() {
         return parent == NULL ? true : false;
