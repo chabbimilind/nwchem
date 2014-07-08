@@ -89,6 +89,8 @@ extern "C" {
         uint64_t reSync;
         uint64_t badDecison;
         uint64_t lastParticipatedBarrier;
+        void * stackBottom;
+
         bool isEnabled;
 
         void Enable() {
@@ -99,6 +101,13 @@ extern "C" {
         }
         bool IsEnabled() {
             return isEnabled;
+        }
+
+        void SetStackBottom(void* bottom) {
+            stackBottom = bottom;
+        }
+        void * GetStackBottom(){
+            return stackBottom;
         }
 
 
@@ -186,6 +195,14 @@ extern "C" {
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
 
+#define USE_LIBUNWIND
+//#define USE_CUSTOM_UNWINDER
+
+#ifdef USE_LIBUNWIND
+    extern int REAL_FUNCTION(main)(int argc, char ** argv);
+    int WRAPPED_FUNCTION(main)(int argc, char ** argv) {
+        return REAL_FUNCTION(main)(argc, argv);
+    }
 
     static inline uint64_t GetContextHash() {
         unw_cursor_t cursor;
@@ -209,7 +226,57 @@ extern "C" {
         //hash  = ((hash & 0xffffffff) << (31)) | ( ((uint64_t) sp) & 0xffffffff);
         return hash;
     }
+#elif defined(USE_CUSTOM_UNWINDER)
+#define ASM_LABEL(name)         \
+    asm volatile (".globl " #name );    \
+    asm volatile ( #name ":" )
 
+    
+    extern int REAL_FUNCTION(main)(int argc, char ** argv);
+    extern void * main_fence1 __attribute__((weak));
+    extern void * main_fence2 __attribute__((weak));
+    
+    /*
+     *  Returns: 1 if address is within the body of the function at the
+     *  bottom of the application's call stack, else 0.
+     */
+    int HasStackEnded(void * insPtr, void * framePtr) {
+        if (&main_fence1 <= insPtr && insPtr <= &main_fence2)
+            return 1;
+        if (framePtr > GLOBAL_STATE.GetStackBottom())
+            return 1;
+        return 0;
+    }
+
+    int WRAPPED_FUNCTION(main)(int argc, char ** argv) {
+        ASM_LABEL(main_fence1);
+        GLOBAL_STATE.SetStackBottom(alloca(8));
+        strncpy((char *) GLOBAL_STATE.GetStackBottom(), "stakbot", 8);
+        return REAL_FUNCTION(main)(argc, argv);
+        ASM_LABEL(main_fence2);
+    }
+    
+    static inline uint64_t GetContextHash() {
+        void ** curStackPointer = (void **) __builtin_frame_address(0);
+        void * curRA = *(curStackPointer+1);
+        uint64_t hash = 0;
+#if 0
+        if(myRank == 0)
+            printf("\nUnwind Start \n");
+#endif
+        // Iterate over return addresses and sum them to get a hash
+        while(!HasStackEnded(curRA, curStackPointer)) {
+            hash += (uint64_t)curRA;
+            curStackPointer = (void **) (*curStackPointer);
+            curRA = *(curStackPointer+1);
+        }
+#if 0
+        if(myRank == 0)
+            printf("\nUnwind End \n");
+#endif
+        return hash;
+    }
+#endif
 
     extern int REAL_FUNCTION(MPI_Barrier)(MPI_Comm comm);
     extern int REAL_FUNCTION(MPI_Init)(int* argc, char** *argv);
@@ -283,8 +350,8 @@ void DumpAllCtxt(){
 
     int WRAPPED_FUNCTION(MPI_Barrier)(MPI_Comm comm) {
 //HACK HACK to get the ctxts
-uint64_t t = GetContextHash();
-allCtxt.push_back(t);
+//uint64_t t = GetContextHash();
+//allCtxt.push_back(t);
         if(GLOBAL_STATE.IsEnabled() && GLOBAL_STATE.doUnwind) {
             // unwind
             volatile uint64_t t = GetContextHash();
@@ -300,7 +367,7 @@ allCtxt.push_back(t);
         MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
         atexit(PrintStats);
 // HACK HACK
-        atexit(DumpAllCtxt);
+//        atexit(DumpAllCtxt);
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
         // Read env whether to do all reduce or barrier
         char* val = getenv("NWCHEM_BARRIER_TYPE");
