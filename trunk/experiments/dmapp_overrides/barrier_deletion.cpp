@@ -50,8 +50,12 @@
 #include <sstream>
 #include<dmapp.h>
 #include<mpi.h>
+#include <alloca.h>
 #include <google/dense_hash_map>
 #include "barrier_deletion.h"
+
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
 
 
 using namespace std;
@@ -95,6 +99,7 @@ extern "C" {
         uint64_t reSync;
         uint64_t badDecison;
         uint64_t lastParticipatedBarrier;
+        void * stackBottom;
         bool isEnabled;
 
         void Enable() {
@@ -108,6 +113,15 @@ extern "C" {
         }
 
 
+        
+        void SetStackBottom(void* bottom) {
+            stackBottom = bottom;
+        }
+        void * GetStackBottom(){
+            return stackBottom;
+        }
+
+        
         void SetLastParticipatedBarrier(uint64_t lpb) {
             lastParticipatedBarrier = lpb;
         }
@@ -205,7 +219,9 @@ extern "C" {
 #define SKIP (10)
 #define PARTICIPATE (0)
 
-#define USE_LIBUNWIND
+//#define USE_LIBUNWIND
+#define USE_CUSTOM_UNWINDER
+    
     /******** Function definitions **********/
 
 #if defined(SIMPLE_CONTEXT)
@@ -215,12 +231,88 @@ extern "C" {
         uint64_t key = ((returnAddress & 0xffffffff) << (31)) | (stackPointer & 0xffffffff);
         return key;
     }
+
+#elif defined(USE_CUSTOM_UNWINDER)
+
+#define ASM_LABEL(name)         \
+    asm volatile (".globl " #name );    \
+    asm volatile ( #name ":" )
+
+    
+    extern int REAL_FUNCTION(main)(int argc, char ** argv);
+    extern void * main_fence1 __attribute__((weak));
+    extern void * main_fence2 __attribute__((weak));
+    
+    /*
+     *  Returns: 1 if address is within the body of the function at the
+     *  bottom of the application's call stack, else 0.
+     */
+    int HasStackEnded(void * insPtr, void * framePtr) {
+        if (&main_fence1 <= insPtr && insPtr <= &main_fence2)
+            return 1;
+        if (framePtr > GLOBAL_STATE.GetStackBottom())
+            return 1;
+        return 0;
+    }
+
+    int WRAPPED_FUNCTION(main)(int argc, char ** argv) {
+        ASM_LABEL(main_fence1);
+        GLOBAL_STATE.SetStackBottom(alloca(8));
+        strncpy((char *) GLOBAL_STATE.GetStackBottom(), "stakbot", 8);
+        return REAL_FUNCTION(main)(argc, argv);
+        ASM_LABEL(main_fence2);
+    }
+    
+    static inline uint64_t GetContextHash() {
+        void ** curStackPointer = (void **) __builtin_frame_address(0);
+        void * curRA = *(curStackPointer+1);
+        uint64_t hash = 0;
+#if 0
+        if(myRank == 0)
+            printf("\nUnwind Start \n");
+#endif
+        // Iterate over return addresses and sum them to get a hash
+        while(!HasStackEnded(curRA, curStackPointer)) {
+            hash += (uint64_t)curRA;
+            curStackPointer = (void **) (*curStackPointer);
+            curRA = *(curStackPointer+1);
+        }
+#if 0
+        if(myRank == 0)
+            printf("\nUnwind End \n");
+#endif
+        return hash;
+    }
+    
+    static inline void PrintBT() {
+        unw_cursor_t cursor;
+        unw_context_t uc;
+        unw_word_t ip, sp;
+        unw_getcontext(&uc);
+        unw_init_local(&cursor, &uc);
+        printf("\n --------------- \n");
+        
+        while(unw_step(&cursor) > 0) {
+            unw_get_reg(&cursor, UNW_REG_IP, &ip);
+            printf(" %lx", ip);
+            //        std::stringstream command;
+            //                command << "/usr/bin/addr2line -C -f -e " << " /global/homes/m/mc29/nwchem-6.3_opt/bin/LINUX64/nwchem " << " " << std::hex << ip;
+            //                      system(command.str().c_str());
+        }
+        
+        printf("\n ---------------\n");
+    }
+
+    
+    
 #elif defined(USE_LIBUNWIND)
 #define BUMP_BT
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
 
-
+    extern int REAL_FUNCTION(main)(int argc, char ** argv);
+    int WRAPPED_FUNCTION(main)(int argc, char ** argv) {
+        return REAL_FUNCTION(main)(argc, argv);
+    }
+    
     static inline uint64_t GetContextHash() {
         unw_cursor_t cursor;
         unw_context_t uc;
