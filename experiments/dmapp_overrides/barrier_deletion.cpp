@@ -78,7 +78,7 @@ extern "C" {
 
 //#define ENABLE_LOGGING
 
-//#define ENABLE_REPLAY
+#define ENABLE_REPLAY
 
 //#define VERBOSE
 
@@ -215,12 +215,13 @@ extern "C" {
         }
     }
     __thread bool gAccessedRemoteData;
+    __thread int  gDisableAnalysis = 0;
 
 #define SKIP (10)
 #define PARTICIPATE (0)
 
-//#define USE_LIBUNWIND
-#define USE_CUSTOM_UNWINDER
+#define USE_LIBUNWIND
+//#define USE_CUSTOM_UNWINDER
     
     /******** Function definitions **********/
 
@@ -636,7 +637,7 @@ extern "C" {
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
 
-        if(ALL_REDUCE_GET_STATUS(recvBuf) == newVal) {
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == newVal && ! gDisableAnalysis) {
             GLOBAL_STATE.barrierSkipCache[key] = newVal;
         } else {
             GLOBAL_STATE.barrierSkipCache[key] = PARTICIPATE;
@@ -660,7 +661,7 @@ extern "C" {
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
         GLOBAL_STATE.barrierSkipCache[key] = ALL_REDUCE_GET_STATUS(recvBuf);
 
-        if(ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE) {
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE && ! gDisableAnalysis) {
             gAccessedRemoteData = false;
             Log(comm, key, "VetoOnFirstRound:", curBarrierInstance, gAccessedRemoteData);
         }
@@ -741,6 +742,10 @@ extern "C" {
     
     
     char GetReplayLogAtIndex(uint64_t index){
+	if (index >= replayLog.size()) {
+		printf("\n Replay log size is %d \n",replayLog.size()); 
+	}
+	assert(index < replayLog.size());
         return replayLog[index];
     }
 #endif
