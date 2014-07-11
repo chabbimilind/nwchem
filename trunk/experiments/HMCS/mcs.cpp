@@ -11,7 +11,7 @@ struct ClassicalMCSNode{
     volatile bool status __attribute__((aligned(CACHE_LINE_SIZE)));
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
-ClassicalMCSNode* volatile MCSLock = NULL;
+ClassicalMCSNode* volatile MCSLock __attribute__((aligned(CACHE_LINE_SIZE)));
 
 
 static inline void AcquireClassicalMCS(ClassicalMCSNode* volatile* L, ClassicalMCSNode* I) {

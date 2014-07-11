@@ -156,31 +156,39 @@ static inline void Acquire(HMCS * L, QNode *I) {
     
     if(!pred) {
         // I am the first one at this level
-        
         // begining of cohort
         I->status = COHORT_START;
 
+        FORCE_INS_ORDERING();
+
         // Acquire at next level if not at the top level
         if(!(L->IsTopLevel())) {
+            // This means this level is acquired and we can start the next level
             AcquireParent(L, I);
         }
     } else {
         pred->next = I;
         
         // ISYNC ... we dont want to start spinning before setting pred->next
-        // Contemplating if this needs to be an LSYNC or ISYNC
-        COMMIT_ALL_WRITES();
+        FORCE_INS_ORDERING();
+        // Contemplating if this needs to be an LWSYNC or ISYNC
+        //COMMIT_ALL_WRITES();
 
-        //FORCE_INS_ORDERING();
         
         // JohnMC optimize 2 tests and reduce load when WAIT has ended.
         for(;;){
             uint64_t myStatus = I->status;
-            if(myStatus < ACQUIRE_PARENT)
+            if(myStatus < ACQUIRE_PARENT) {
+                FORCE_INS_ORDERING();
                 break;
+            }
             if(myStatus == ACQUIRE_PARENT) {
                 // beginning of cohort
                 I->status = COHORT_START;
+                
+                FORCE_INS_ORDERING();
+
+                // This means this level is acquired and we can start the next level
                 AcquireParent(L, I);
                 break;
             }
@@ -229,9 +237,13 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
     // Top level release is usual MCS
     if(L->IsTopLevel()) {
         if(tryRelease) {
-            return TryMCSReleaseWithValue(L, I, curCount);
+            bool retVal = TryMCSReleaseWithValue(L, I, curCount);
+            COMMIT_ALL_WRITES();
+            return retVal;
+
         }
         NormalMCSReleaseWithValue(L, I, curCount);
+        COMMIT_ALL_WRITES();
         return true;
     }
     
@@ -246,17 +258,20 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
             if(releaseVal){
                 // Tap successor at this level and ask to spin acquire next level lock
                 NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+                COMMIT_ALL_WRITES();
                 return true; // released
             }
             
             // retaining lock
             // if tryRelease == true, pass it to descendents
             if (tryRelease) {
+                COMMIT_ALL_WRITES();
                 return false; // not released
             }
             // pass it to peers
             // Tap successor at this level
             succ->status=  COHORT_START; /* give one full chunk */
+            COMMIT_ALL_WRITES();
             return true; //released
             
         }
@@ -268,6 +283,7 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
         Release(L->parent, &(L->node));
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+        COMMIT_ALL_WRITES();
         return true; // Released
     }
     
@@ -275,6 +291,7 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
     // Not reached threshold
     if(succ) {
         succ->status = curCount + 1;
+        COMMIT_ALL_WRITES();
         return true; // Released
     } else {
                 // NO KNOWN SUCCESSOR, so release
@@ -282,6 +299,7 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
 
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+        COMMIT_ALL_WRITES();
         return true; // Released
     }
 }
