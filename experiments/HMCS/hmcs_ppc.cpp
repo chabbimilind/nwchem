@@ -21,7 +21,7 @@ struct QNode{
         }
         return storage;
     }
-
+    
     
     inline void Reuse(){
         status = WAIT;
@@ -35,7 +35,7 @@ struct HMCS{
     struct HMCS * parent __attribute__((aligned(CACHE_LINE_SIZE)));
     struct QNode *  volatile lock __attribute__((aligned(CACHE_LINE_SIZE)));
     struct QNode  node __attribute__((aligned(CACHE_LINE_SIZE)));
-
+    
     inline void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
@@ -43,7 +43,7 @@ struct HMCS{
         }
         return storage;
     }
-
+    
     inline bool IsTopLevel() {
         return parent == NULL ? true : false;
     }
@@ -51,12 +51,12 @@ struct HMCS{
     inline uint64_t GetThreshold()const {
         return threshold;
     }
-
+    
     inline void SetThreshold(uint64_t t) {
-         threshold = t;
+        threshold = t;
     }
     
-
+    
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
@@ -64,8 +64,6 @@ int threshold;
 int * thresholdAtLevel;
 
 inline int GetThresholdAtLevel(int level){
-    // TODO: make it tunable
-    //return threshold;
     return thresholdAtLevel[level];
 }
 
@@ -133,63 +131,48 @@ HMCS * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
 }
 
 static void Acquire(HMCS * L, QNode *I);
-static inline void AcquireParent(HMCS * L, QNode *I) {
-    //QNode * I2 = new QNode();
-    //L->node = I2;
-    //Acquire(L->parent, I2);
-    
-    // prepare L->node;
-    L->node.Reuse();
+static inline void AcquireParent(HMCS * L) {
     Acquire(L->parent, &(L->node));
 }
 
 
 
-/*
- An isync instruction causes the processor to complete execution of all previous instructions and then to discard instructions (which may have begun execution) following the isync. After the isync is executed, the following instructions then begin execution. isync is used in locking code to ensure that the loads following entry into the critical section are not performed (because of aggressive out-of-order or speculative execution in the processor) until the lock is granted.
- */
-
-// NOTE: Replace Acquire with Acquire(); ISYNC();
 
 static inline void Acquire(HMCS * L, QNode *I) {
+    // Prepare the node for use.
+    I->Reuse();
+    
     QNode * pred = (QNode *) SWAP(&(L->lock), I);
     
     if(!pred) {
         // I am the first one at this level
         // begining of cohort
         I->status = COHORT_START;
-
-        FORCE_INS_ORDERING();
-
         // Acquire at next level if not at the top level
         if(!(L->IsTopLevel())) {
             // This means this level is acquired and we can start the next level
-            AcquireParent(L, I);
+            AcquireParent(L);
         }
     } else {
         pred->next = I;
         
         // ISYNC ... we dont want to start spinning before setting pred->next
-        FORCE_INS_ORDERING();
+        //FORCE_INS_ORDERING();
         // Contemplating if this needs to be an LWSYNC or ISYNC
         //COMMIT_ALL_WRITES();
-
+        
         
         // JohnMC optimize 2 tests and reduce load when WAIT has ended.
         for(;;){
             uint64_t myStatus = I->status;
             if(myStatus < ACQUIRE_PARENT) {
-                FORCE_INS_ORDERING();
                 break;
             }
             if(myStatus == ACQUIRE_PARENT) {
                 // beginning of cohort
                 I->status = COHORT_START;
-                
-                FORCE_INS_ORDERING();
-
                 // This means this level is acquired and we can start the next level
-                AcquireParent(L, I);
+                AcquireParent(L);
                 break;
             }
             // spin back; (I->status == WAIT)
@@ -238,12 +221,10 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
     if(L->IsTopLevel()) {
         if(tryRelease) {
             bool retVal = TryMCSReleaseWithValue(L, I, curCount);
-            COMMIT_ALL_WRITES();
             return retVal;
-
+            
         }
         NormalMCSReleaseWithValue(L, I, curCount);
-        COMMIT_ALL_WRITES();
         return true;
     }
     
@@ -256,22 +237,24 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
         if( tryRelease || succ) {
             bool releaseVal = Release(L->parent, &(L->node), true /* try release */);
             if(releaseVal){
+                
+                COMMIT_ALL_WRITES();
+                
+                
                 // Tap successor at this level and ask to spin acquire next level lock
                 NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-                COMMIT_ALL_WRITES();
                 return true; // released
             }
             
             // retaining lock
             // if tryRelease == true, pass it to descendents
             if (tryRelease) {
-                COMMIT_ALL_WRITES();
                 return false; // not released
             }
+            
             // pass it to peers
             // Tap successor at this level
             succ->status=  COHORT_START; /* give one full chunk */
-            COMMIT_ALL_WRITES();
             return true; //released
             
         }
@@ -281,9 +264,11 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
         // release to next level
         
         Release(L->parent, &(L->node));
+        
+        COMMIT_ALL_WRITES();
+        
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-        COMMIT_ALL_WRITES();
         return true; // Released
     }
     
@@ -291,15 +276,15 @@ inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
     // Not reached threshold
     if(succ) {
         succ->status = curCount + 1;
-        COMMIT_ALL_WRITES();
         return true; // Released
     } else {
-                // NO KNOWN SUCCESSOR, so release
+        // NO KNOWN SUCCESSOR, so release
         Release(L->parent, &(L->node));
-
+        
+        COMMIT_ALL_WRITES();
+        
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-        COMMIT_ALL_WRITES();
         return true; // Released
     }
 }
@@ -324,13 +309,13 @@ int main(int argc, char *argv[]){
     omp_set_num_threads(numThreads);
     
     int numIter = totalIters / numThreads;
-
-        //int levels = 4;
-        //int participantsAtLevel[] = {2, 4, 8, 16};
-        //omp_set_num_threads(16);
-        //int levels = 2;
-        //int participantsAtLevel[] = {12, 36};
-        //omp_set_num_threads(36);
+    
+    //int levels = 4;
+    //int participantsAtLevel[] = {2, 4, 8, 16};
+    //omp_set_num_threads(16);
+    //int levels = 2;
+    //int participantsAtLevel[] = {12, 36};
+    //omp_set_num_threads(36);
     
     //int levels = 2;
     //int participantsAtLevel[] = {2, 4};
@@ -349,22 +334,22 @@ int main(int argc, char *argv[]){
 #ifdef CHECK_THREAD_AFFINITY
         PrintAffinity(tid);
 #endif
-
+        
         
         HMCS * hmcs = LockInit(tid, size, levels, participantsAtLevel);
-
+        
         if(tid == 0)
             gettimeofday(&start, 0);
         
         QNode me;
         for(int i = 0; i < numIter; i++) {
-            me.Reuse();
+            //me.Reuse();
             AcquireWraper(hmcs, &me);
             
 #ifdef  DOWORK
             DoWorkInsideCS();
 #endif
-
+            
 #ifdef VALIDATE
             int lvar = var;
             var ++;
