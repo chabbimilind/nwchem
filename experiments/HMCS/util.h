@@ -44,17 +44,20 @@
 static inline int64_t PPCSwap(volatile int64_t * addr, int64_t value) {
 	for(;;){ 
 		int64_t oldVal = __ldarx(addr);
-		if(__stdcx(addr, value))
+		if(__stdcx(addr, value)) {
 			return oldVal;
+		}
 	}
 }
 
 static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldValue, int64_t newValue) {
 	int64_t val = __ldarx(addr);
-	if (val != oldValue)
+	if (val != oldValue) {
 		return false;
-	if(__stdcx(addr, newValue))
+	}
+	if(__stdcx(addr, newValue)) {
 		return true;
+	}
 	return false;
 }
 
@@ -79,7 +82,7 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 
 //#define DOWORK
 //#define VALIDATE
-
+//#define CHECK_THREAD_AFFINITY
 
 #ifdef VALIDATE
 volatile int var = 0;
@@ -122,16 +125,17 @@ void PrintAffinity(int tid){
     
     thread = pthread_self();
     
-    /* Set affinity mask to include CPUs 0 to 7
+    /* Set affinity mask to include CPUs tid */
     
     CPU_ZERO(&cpuset);
-    for (j = 0; j < 8; j++)
-        CPU_SET(j, &cpuset);
+    CPU_SET(1*tid, &cpuset);
+    if(tid == 0 )
+	printf("CPU_SET(1*tid, &cpuset);\n");
     
     s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
     if (s != 0)
         handle_error_en(s, "pthread_setaffinity_np");
-   */
+#if 0
     /* Check the actual affinity mask assigned to the thread */
     
     s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
@@ -142,6 +146,7 @@ void PrintAffinity(int tid){
     for (j = 0; j < CPU_SETSIZE; j++)
         if (CPU_ISSET(j, &cpuset))
             printf("    %d: CPU %d\n", tid,j);
+#endif
 }
 
 #endif
