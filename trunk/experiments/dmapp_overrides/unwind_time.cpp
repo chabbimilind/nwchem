@@ -290,6 +290,8 @@ extern "C" {
     }
 
     static struct timeval t1, t2;
+    static struct timeval mpiInitTime, mpiFinalizeTime;
+
 
 #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 
@@ -369,6 +371,12 @@ void DumpAllCtxt(){
 // HACK HACK
 //        atexit(DumpAllCtxt);
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+
+        // Get time after statring MPI
+        if(myRank == 0) {
+            gettimeofday(&mpiInitTime, NULL);
+        }
+
         // Read env whether to do all reduce or barrier
         char* val = getenv("NWCHEM_BARRIER_TYPE");
 
@@ -385,6 +393,12 @@ void DumpAllCtxt(){
 
 
     int WRAPPED_FUNCTION(MPI_Finalize)() {
+        // Print execution time
+        if(myRank == 0) {
+            gettimeofday(&mpiFinalizeTime, NULL);
+            uint64_t span = TIME_SPENT(mpiInitTime, mpiFinalizeTime);
+            printf("\n End-to-end execution time %lu \n", span);
+        }
         int retVal = REAL_FUNCTION(MPI_Finalize)();
         return retVal;
     }

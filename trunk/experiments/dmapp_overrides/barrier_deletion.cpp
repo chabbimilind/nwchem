@@ -78,7 +78,7 @@ extern "C" {
 
 //#define ENABLE_LOGGING
 
-#define ENABLE_REPLAY
+//#define ENABLE_REPLAY
 
 //#define VERBOSE
 
@@ -227,6 +227,7 @@ extern "C" {
 
 #if defined(SIMPLE_CONTEXT)
     inline uint64_t GetContextHash() {
+	assert(0 && "No longer maintained. Dont call me");
         uint64_t returnAddress = (uint64_t) __builtin_return_address(0);
         uint64_t stackPointer = (uint64_t) __builtin_frame_address(0);
         uint64_t key = ((returnAddress & 0xffffffff) << (31)) | (stackPointer & 0xffffffff);
@@ -274,10 +275,17 @@ extern "C" {
 #endif
         // Iterate over return addresses and sum them to get a hash
         while(!HasStackEnded(curRA, curStackPointer)) {
+	    /* better hashing provided by Wim */
             hash += (uint64_t)curRA;
+            hash += (hash << 10); 
+            hash ^= (hash >> 6);
+
             curStackPointer = (void **) (*curStackPointer);
             curRA = *(curStackPointer+1);
         }
+        hash += (hash << 3); 
+        hash ^= (hash >> 11); 
+        hash += (hash << 15);
 #if 0
         if(myRank == 0)
             printf("\nUnwind End \n");
@@ -331,7 +339,12 @@ extern "C" {
              first = false;
              } */
             hash += ip;
+            hash += (hash << 10); 
+            hash ^= (hash >> 6);
         }
+        hash += (hash << 3); 
+        hash ^= (hash >> 11); 
+        hash += (hash << 15);
         return hash;
     }
 
@@ -569,7 +582,8 @@ extern "C" {
 #ifdef VERBOSE
             RecordInRedundancyMap(key);
 #endif
-//#define BARRIER_DEBUG
+
+#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
             uint64_t recvBuf;
             //uint64_t sendBuf = curBarrierInstance;
@@ -668,6 +682,7 @@ extern "C" {
     }
 
     static struct timeval t1, t2;
+    static struct timeval mpiInitTime, mpiFinalizeTime;
 
 #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 
@@ -879,6 +894,7 @@ extern "C" {
     }
 
     int WRAPPED_FUNCTION(MPI_Init)(int* argc, char** *argv) {
+enable_barrier_optimization_();
         int retVal = REAL_FUNCTION(MPI_Init)(argc, argv);
 
         // make sure dense_hash_map is initialized with empty key
@@ -888,6 +904,12 @@ extern "C" {
         MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
         atexit(PrintStats);
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+
+
+        // Get time after statring MPI
+        if(myRank == 0) {
+            gettimeofday(&mpiInitTime, NULL);
+        }
         
 #ifdef ENABLE_REPLAY
         char * val = getenv("NWCHEM_REPLAYMODE");
@@ -923,6 +945,12 @@ extern "C" {
 
 
     int WRAPPED_FUNCTION(MPI_Finalize)() {
+        // Print execution time
+        if(myRank == 0) {
+            gettimeofday(&mpiFinalizeTime, NULL);
+            uint64_t span = TIME_SPENT(mpiInitTime, mpiFinalizeTime);
+            printf("\n End-to-end execution time %lu \n", span);
+        }
         int retVal = REAL_FUNCTION(MPI_Finalize)();
         return retVal;
     }
