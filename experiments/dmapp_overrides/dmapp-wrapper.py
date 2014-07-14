@@ -25,7 +25,7 @@ dmappSkipList = [
 # this is important... althought it is a dmapp call it is fully local
 'dmapp_get_jobinfo',
 'dmapp_get_rma_attrs',
-'dmapp_get_rma_attrs_ext'
+'dmapp_get_rma_attrs_ext',
 'dmapp_syncid_test',
 'dmapp_syncid_wait',
 'dmapp_gsync_test',
