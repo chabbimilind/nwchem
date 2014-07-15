@@ -583,7 +583,7 @@ extern "C" {
             RecordInRedundancyMap(key);
 #endif
 
-#define BARRIER_DEBUG
+//#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
             uint64_t recvBuf;
             //uint64_t sendBuf = curBarrierInstance;
