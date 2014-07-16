@@ -71,9 +71,20 @@ extern "C" {
 #define REAL_FUNCTION(name)  __real_ ## name
 #define WRAPPED_FUNCTION(name)  __wrap_ ## name
     
+    
+    
+#define USE_CONTEXT_IN_MPI_REDUCTION
+    
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+#define ALL_REDUCE_BUFFER(buffer, status, ctxt)  do{ buffer[0] = (((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance());  buffer[1] = ctxt;} while(0)
+#define ALL_REDUCE_GET_STATUS(buffer) ((buffer[0]) >> 32 )
+#define ALL_REDUCE_GET_INSTANCE(buffer) ((buffer[0]) & 0xffffffff)
+#define ALL_REDUCE_GET_CONTEXT(buffer) ((buffer[1]))
+#else
 #define ALL_REDUCE_BUFFER(status) ( ((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance())
 #define ALL_REDUCE_GET_STATUS(buffer) ( (buffer) >> 32 )
 #define ALL_REDUCE_GET_INSTANCE(buffer) ((buffer) & 0xffffffff)
+#endif
     
     
     //#define ENABLE_LOGGING
@@ -189,6 +200,27 @@ extern "C" {
     static MPI_Op myMPIOp;
     
     
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+    static void MyMPIReductionOp(void* a, void* b, int* len, MPI_Datatype* type) {
+        uint64_t * a1 = (uint64_t*)a;
+        uint64_t * b1 = (uint64_t*)b;
+        uint32_t statusA = ALL_REDUCE_GET_STATUS(a1);
+        uint32_t statusB = ALL_REDUCE_GET_STATUS(b1);
+        uint32_t instanceA = ALL_REDUCE_GET_INSTANCE(a1);
+        uint32_t instanceB = ALL_REDUCE_GET_INSTANCE(b1);
+        // Min of status
+        uint64_t retStatus = statusA < statusB ? statusA : statusB;
+        // Min of barrier instance
+        uint64_t retInstance = instanceA < instanceB ? instanceA : instanceB;
+        b1[0] = (((retStatus) << 32) | retInstance);
+        
+        uint64_t ctxt1 = ALL_REDUCE_GET_CONTEXT(a1);
+        uint64_t ctxt2 = ALL_REDUCE_GET_CONTEXT(b1);
+        // If context's dont match return 0.
+        if(ctxt1 != ctxt2)
+            b1[1] = 0;
+    }
+#else
     static void MyMPIReductionOp(void* a, void* b, int* len, MPI_Datatype* type) {
         uint64_t a1 = *((uint64_t*)a);
         uint64_t b1 = *((uint64_t*)b);
@@ -202,7 +234,7 @@ extern "C" {
         uint64_t retInstance = instanceA < instanceB ? instanceA : instanceB;
         *((uint64_t*)b) = (((retStatus) << 32) | retInstance);
     }
-    
+#endif
     
     static void DumpRedundancyMap();
     
@@ -556,11 +588,20 @@ asm volatile ( #name ":" )
         assert(t == DMAPP_RC_SUCCESS);
         // We have already decided to participate for this barrier
         GLOBAL_STATE.SetLastParticipatedBarrier(key);
+        
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+        uint64_t recvBuf[2];
+        uint64_t sendBuf[2];
+        uint64_t sendStatus = PARTICIPATE;
+        ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
+#else
         uint64_t recvBuf;
         uint64_t sendBuf = PARTICIPATE;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
-        
+#endif
         // Bad state! Somebody decided to skip! Should never happen.
         if(ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()) {
             printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
@@ -585,13 +626,28 @@ asm volatile ( #name ":" )
             
             //#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
+            
+            uint64_t receiveStatus;
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+            uint64_t recvBuf[2];
+            //uint64_t sendBuf = curBarrierInstance;
+            uint64_t sendBuf[2];
+            ALL_REDUCE_BUFFER(sendBuf, SKIP, key);
+            // Ensure the assumption is not violated by any process
+            retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+            assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
+#else
             uint64_t recvBuf;
             //uint64_t sendBuf = curBarrierInstance;
             uint64_t sendBuf = SKIP;
             sendBuf = ALL_REDUCE_BUFFER(sendBuf);
             // Ensure the assumption is not violated by any process
             retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
+#endif
+            
             assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
+            
+            
             int size;
             MPI_Comm_size(comm, &size);
             
@@ -611,10 +667,20 @@ asm volatile ( #name ":" )
         } else {
             Log(comm, key, "Breaking:", curBarrierInstance, gAccessedRemoteData);
             // I am breaking my consensus... so what if all are breaking we are still fine.
+            
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+            uint64_t recvBuf[2];
+            uint64_t sendBuf[2];
+            uint64_t sendStatus = PARTICIPATE;
+            ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
+            retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+            assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
+#else
             uint64_t recvBuf;
             uint64_t sendBuf = PARTICIPATE;
             sendBuf = ALL_REDUCE_BUFFER(sendBuf);
             retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
+#endif
             
             if(ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()) {
                 printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
@@ -644,11 +710,21 @@ asm volatile ( #name ":" )
     static inline void ContinueDecisionProcess(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int& retVal) {
         Log(comm, key, "Deciding:", curBarrierInstance, gAccessedRemoteData);
         // in decison process ... do all reduce
+        
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+        uint64_t recvBuf[2], sendBuf[2];
+        uint64_t newVal = val + 1;
+        uint64_t sendStatus = gAccessedRemoteData ? PARTICIPATE : newVal;
+        ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
+#else
         uint64_t recvBuf;
         uint64_t newVal = val + 1;
         uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : newVal;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
+#endif
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
         
         if(ALL_REDUCE_GET_STATUS(recvBuf) == newVal && ! gDisableAnalysis) {
@@ -663,11 +739,19 @@ asm volatile ( #name ":" )
     static inline void HandleFirstVisit(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, int& retVal) {
         Log(comm, key, "Firsttime:", curBarrierInstance, gAccessedRemoteData);
         // first visit ... do all reduce
+#ifdef USE_CONTEXT_IN_MPI_REDUCTION
+        uint64_t recvBuf[2];
+        uint64_t sendBuf[2];
+        uint64_t sendStatus= gAccessedRemoteData ? PARTICIPATE : 1;
+        ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
+#else
         uint64_t recvBuf;
         uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : 1;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
-        
+#endif
         if(ALL_REDUCE_GET_INSTANCE(recvBuf)  != GLOBAL_STATE.GetBarrierInstance()) {
             printf("\n sendBuf = %lx, recvBuf = %lx, ALL_REDUCE_GET_INSTANCE(recvBuf) = %lx, GLOBAL_STATE.GetBarrierInstance() = %lx", sendBuf, recvBuf, ALL_REDUCE_GET_INSTANCE(recvBuf), GLOBAL_STATE.GetBarrierInstance());
         }
