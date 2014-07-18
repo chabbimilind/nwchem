@@ -73,7 +73,7 @@ extern "C" {
     
     
     
-#define USE_CONTEXT_IN_MPI_REDUCTION
+//#define USE_CONTEXT_IN_MPI_REDUCTION
     
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
 #define ALL_REDUCE_BUFFER(buffer, status, ctxt)  do{ buffer[0] = (((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance());  buffer[1] = ctxt;} while(0)
@@ -733,6 +733,9 @@ asm volatile ( #name ":" )
             GLOBAL_STATE.barrierSkipCache[key] = PARTICIPATE;
             Log(comm, key, "VetoInDecison:", curBarrierInstance, gAccessedRemoteData);
         }
+        
+        // reset gAccessedRemoteData to false since we just did a barrier.
+        gAccessedRemoteData = false;
     }
     
     
