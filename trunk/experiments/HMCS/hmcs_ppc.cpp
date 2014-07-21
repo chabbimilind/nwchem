@@ -135,10 +135,12 @@ static inline void AcquireParent(HMCS * L) {
     Acquire(L->parent, &(L->node));
 }
 
-
-
+#define ACQUIRE_NEXT_LEVEL_MCS_LOCK(L) do{I=&(L->node); L=L->parent; goto START;} while(0)
 
 static inline void Acquire(HMCS * L, QNode *I) {
+
+START:
+    
     // Prepare the node for use.
     I->Reuse();
     
@@ -151,7 +153,7 @@ static inline void Acquire(HMCS * L, QNode *I) {
         // Acquire at next level if not at the top level
         if(!(L->IsTopLevel())) {
             // This means this level is acquired and we can start the next level
-            AcquireParent(L);
+            ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
         }
     } else {
         pred->next = I;
@@ -172,7 +174,7 @@ static inline void Acquire(HMCS * L, QNode *I) {
                 // beginning of cohort
                 I->status = COHORT_START;
                 // This means this level is acquired and we can start the next level
-                AcquireParent(L);
+                ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
                 break;
             }
             // spin back; (I->status == WAIT)
