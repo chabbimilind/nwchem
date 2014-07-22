@@ -138,7 +138,7 @@ static inline void AcquireParent(HMCS * L) {
 #define ACQUIRE_NEXT_LEVEL_MCS_LOCK(L) do{I=&(L->node); L=L->parent; goto START;} while(0)
 
 static inline void Acquire(HMCS * L, QNode *I) {
-
+    
 START:
     
     // Prepare the node for use.
@@ -187,7 +187,6 @@ static inline void AcquireWraper(HMCS * L, QNode *I) {
     FORCE_INS_ORDERING();
 }
 
-static bool Release(HMCS * L, QNode *I, bool tryRelease=false);
 inline static void NormalMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
     
     QNode * succ = I->next;
@@ -213,87 +212,121 @@ inline static  bool TryMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
 }
 
 
-inline static bool Release(HMCS * L, QNode *I, bool tryRelease) {
+
     
-    uint64_t curCount = I->status;
+template<int level>
+struct LockRelease {
+    inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
+        uint64_t curCount = I->status;
+        QNode * succ;
+        
+        // Lower level releases
+        if(curCount == L->GetThreshold()) {
+            
+            succ  = I->next;
+            // if I have successors, we'll try release
+            if( tryRelease || succ) {
+                bool releaseVal = LockRelease<level - 1>::Release(L->parent, &(L->node), true /* try release */);
+                if(releaseVal){
+                    
+                    COMMIT_ALL_WRITES();
+                    
+                    
+                    // Tap successor at this level and ask to spin acquire next level lock
+                    NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+                    return true; // released
+                }
+                
+                // retaining lock
+                // if tryRelease == true, pass it to descendents
+                if (tryRelease) {
+                    return false; // not released
+                }
+                
+                // pass it to peers
+                // Tap successor at this level
+                succ->status=  COHORT_START; /* give one full chunk */
+                return true; //released
+                
+            }
+            
+            // NO KNOWN SUCCESSORS / DESCENDENTS
+            // reached threshold and have next level
+            // release to next level
+            
+            LockRelease<level - 1>::Release(L->parent, &(L->node));
+            
+            COMMIT_ALL_WRITES();
+            
+            // Tap successor at this level and ask to spin acquire next level lock
+            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+            return true; // Released
+        }
+        
+        succ = I->next;
+        // Not reached threshold
+        if(succ) {
+            succ->status = curCount + 1;
+            return true; // Released
+        } else {
+            // NO KNOWN SUCCESSOR, so release
+            LockRelease<level - 1>::Release(L->parent, &(L->node));
+            
+            COMMIT_ALL_WRITES();
+            
+            // Tap successor at this level and ask to spin acquire next level lock
+            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+            return true; // Released
+        }
+    }
     
-    QNode * succ;
-    
-    // Top level release is usual MCS
-    if(L->IsTopLevel()) {
+};
+
+template <>
+struct LockRelease<1> {
+    inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
+        uint64_t curCount = I->status;
+        // Top level release is usual MCS
         if(tryRelease) {
             bool retVal = TryMCSReleaseWithValue(L, I, curCount);
             return retVal;
-            
         }
         NormalMCSReleaseWithValue(L, I, curCount);
         return true;
     }
-    
-    // Lower level releases
-    
-    if(curCount == L->GetThreshold()) {
-        
-        succ  = I->next;
-        // if I have successors, we'll try release
-        if( tryRelease || succ) {
-            bool releaseVal = Release(L->parent, &(L->node), true /* try release */);
-            if(releaseVal){
-                
-                COMMIT_ALL_WRITES();
-                
-                
-                // Tap successor at this level and ask to spin acquire next level lock
-                NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-                return true; // released
-            }
-            
-            // retaining lock
-            // if tryRelease == true, pass it to descendents
-            if (tryRelease) {
-                return false; // not released
-            }
-            
-            // pass it to peers
-            // Tap successor at this level
-            succ->status=  COHORT_START; /* give one full chunk */
-            return true; //released
-            
-        }
-        
-        // NO KNOWN SUCCESSORS / DESCENDENTS
-        // reached threshold and have next level
-        // release to next level
-        
-        Release(L->parent, &(L->node));
-        
-        COMMIT_ALL_WRITES();
-        
-        // Tap successor at this level and ask to spin acquire next level lock
-        NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-        return true; // Released
-    }
-    
-    succ = I->next;
-    // Not reached threshold
-    if(succ) {
-        succ->status = curCount + 1;
-        return true; // Released
-    } else {
-        // NO KNOWN SUCCESSOR, so release
-        Release(L->parent, &(L->node));
-        
-        COMMIT_ALL_WRITES();
-        
-        // Tap successor at this level and ask to spin acquire next level lock
-        NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-        return true; // Released
-    }
-}
+};
 
-inline static bool ReleaseWrapper(HMCS * L, QNode *I) {
+inline static bool ReleaseWrapper(HMCS * L, QNode *I, int level) {
     COMMIT_ALL_WRITES();
-    Release(L, I);
+    switch (level) {
+        case 1:
+            LockRelease<1>::Release(L, I);
+            break;
+        case 2:
+            LockRelease<2>::Release(L, I);
+            break;
+        case 3:
+            LockRelease<3>::Release(L, I);
+            break;
+        case 4:
+            LockRelease<4>::Release(L, I);
+            break;
+        case 5:
+            LockRelease<5>::Release(L, I);
+            break;
+        case 6:
+            LockRelease<6>::Release(L, I);
+            break;
+        case 7:
+            LockRelease<7>::Release(L, I);
+            break;
+        case 8:
+            LockRelease<8>::Release(L, I);
+            break;
+        default:
+            assert(0 && "Release > 8 NYI");
+            break;
+    }
 }
 
 int main(int argc, char *argv[]){
@@ -357,7 +390,7 @@ int main(int argc, char *argv[]){
             var ++;
             assert(var == lvar + 1);
 #endif
-            ReleaseWrapper(hmcs, &me);
+            ReleaseWrapper(hmcs, &me, levels);
             
 #ifdef  DOWORK
             DoWorkOutsideCS();
