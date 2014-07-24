@@ -213,7 +213,7 @@ inline static  bool TryMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
 
 
 
-    
+
 template<int level>
 struct LockRelease {
     inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
