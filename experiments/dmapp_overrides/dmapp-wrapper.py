@@ -31,7 +31,12 @@ dmappSkipList = [
 'dmapp_gsync_test',
 'dmapp_gsync_wait', 
 'dmapp_thread_gsync_wait',
-'dmapp_thread_gsync_test'
+'dmapp_thread_gsync_test',
+
+# these two APIs are added only when GUIDED_OPTIMIZATION is added, TODO, make it conditional
+'dmapp_mem_register',
+'dmapp_mem_unregister'
+
 ]
 
 def WriteDMAPPWrappedSymbol(file, funcSig):
@@ -62,6 +67,9 @@ extern "C" {
 
         fp.write('extern ' + sig[0] +  ' REAL_FUNCTION(' +  sig[1] + ') (' + sig[2] + ') ;\n' )
         fp.write(sig[0] +  ' WRAPPED_FUNCTION(' +  sig[1] + ') (' + sig[2] + ') {\n' )
+        # This is a heavy duty call .. just for GUIDED OPTIMIZATION
+        fp.write('UnprotectAllPages();\n')
+
         if 3 < len(sig) and sig[3]:
             fp.write('\t gDisableAnalysis += 1;\n')
             fp.write('\t ')
