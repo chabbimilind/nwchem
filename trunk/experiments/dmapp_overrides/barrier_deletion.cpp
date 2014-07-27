@@ -1109,9 +1109,10 @@ asm volatile ( #name ":" )
             // remove this key from redundancy map if recorded there
             DeleteFromRedundancyMap(rKey);
         }
-        
+#if 0 
+        // Disable page protection
         GLOBAL_STATE.PageProtectAllSharedData(PROT_NONE);
-        
+#endif
         // reset gAccessedRemoteData to false since we just did a barrier.
         gAccessedRemoteData = false;
         
@@ -1307,6 +1308,8 @@ asm volatile ( #name ":" )
     
 #ifdef GUIDED_OPTIMIZATION
     
+#if 0 
+    // Disable page protection
     extern dmapp_return_t REAL_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) ;
     dmapp_return_t WRAPPED_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) {
         dmapp_return_t retVal = REAL_FUNCTION(dmapp_mem_register)(addr, length, seg_desc);
@@ -1339,6 +1342,7 @@ asm volatile ( #name ":" )
         
         return retVal;
     }
+#endif
     
     void PageProtectionHandler(int sig, siginfo_t *si, void *unused){
         void * faultAddress;
@@ -1360,6 +1364,8 @@ asm volatile ( #name ":" )
         // make sure dense_hash_map is initialized with empty key
         GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(0);
         
+#if 0
+        // Disable page protection
         //Setup SIGSEGV handler for detecting touches to shared memory pages
         // signal handler
         struct sigaction sa;
@@ -1368,6 +1374,7 @@ asm volatile ( #name ":" )
         sa.sa_sigaction = &PageProtectionHandler;
         sa.sa_flags = SA_SIGINFO;
         sigaction (SIGSEGV, &sa, NULL);
+#endif
         
     }
 #endif
