@@ -13,7 +13,7 @@
 #include <malloc.h>
 #include <errno.h>
 #include <pthread.h>
-
+#include <signal.h>
 
 #define  LOCKED (false)
 #define  UNLOCKED (true)
@@ -21,29 +21,13 @@
 #define WAIT (0xffffffffffffffff)
 #define ACQUIRE_PARENT (0xfffffffffffffffe)
 #define COHORT_START (0x1)
-
+#define ALARM_TIME (3 * 60)
 
 #if defined(__xlC__) || defined (__xlc__)
 #include<builtins.h>
-/* copied from http://www.ibm.com/developerworks/aix/library/au-inline_assembly/index.html?ca=dat */
-        void inline compare_and_swap (volatile int * p, int oldval, int newval) {
-        int fail;
-        __asm__ __volatile__ (
-           "0: lwarx %0, 0, %1\n\t"
-                 "      xor. %0, %3, %0\n\t"
-              " bne 1f\n\t"
-            " stwcx. %2, 0, %1\n\t"
-                 "      bne- 0b\n\t"
-            " isync\n\t"
-        "1: "
-        : "=&r"(fail)
-        : "r"(p), "r"(newval), "r"(oldval)
-        : "cr0");
-        }
-
 static inline int64_t PPCSwap(volatile int64_t * addr, int64_t value) {
-	for(;;){ 
-		int64_t oldVal = __ldarx(addr);
+ 	for(;;){
+		const int64_t oldVal = __ldarx(addr);
 		if(__stdcx(addr, value)) {
 			return oldVal;
 		}
@@ -51,17 +35,16 @@ static inline int64_t PPCSwap(volatile int64_t * addr, int64_t value) {
 }
 
 static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldValue, int64_t newValue) {
-	int64_t val = __ldarx(addr);
-	if (val != oldValue) {
-		return false;
-	}
-	if(__stdcx(addr, newValue)) {
-		return true;
-	}
-	return false;
+    for(;;) {
+        const int64_t val = __ldarx(addr);
+        if (val != oldValue) {
+            return false;
+        }
+        if(__stdcx(addr, newValue)) {
+            return true;
+        }
+    }
 }
-
-
 #define CAS(location, oldValue, newValue) assert(0 && "NYI")
 #define SWAP(location, value) PPCSwap((volatile int64_t *)location, (int64_t)value)
 #define BOOL_CAS(location, oldValue, newValue) PPCBoolCompareAndSwap((volatile int64_t *)location, (int64_t)oldValue, (int64_t)newValue)
@@ -72,17 +55,25 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 #define CAS(location, oldValue, newValue) __sync_val_compare_and_swap(location, oldValue, newValue)
 #define SWAP(location, value) __sync_lock_test_and_set(location, value)
 #define BOOL_CAS(location, oldValue, newValue) __sync_bool_compare_and_swap(location, oldValue, newValue)
+
+#ifdef __PPC__
+#define FORCE_INS_ORDERING() __asm__ __volatile__ (" isync\n\t")
+#define COMMIT_ALL_WRITES() __asm__ __volatile__ (" lwsync\n\t")
+#elif defined(__x86_64__)
 #define FORCE_INS_ORDERING() do{}while(0)
 #define COMMIT_ALL_WRITES() do{}while(0)
+#else
+assert( 0 && "unsupported platform");
 #endif
 
+#endif
 #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 
 #define CACHE_LINE_SIZE (128)
 
 //#define DOWORK
 //#define VALIDATE
-//#define CHECK_THREAD_AFFINITY
+#define CHECK_THREAD_AFFINITY
 
 #ifdef VALIDATE
 volatile int var = 0;
@@ -130,7 +121,7 @@ void PrintAffinity(int tid){
     CPU_ZERO(&cpuset);
     CPU_SET(1*tid, &cpuset);
     if(tid == 0 )
-	printf("CPU_SET(1*tid, &cpuset);\n");
+        printf("CPU_SET(1*tid, &cpuset);\n");
     
     s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
     if (s != 0)

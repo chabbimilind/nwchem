@@ -26,6 +26,7 @@ struct QNode{
     inline void Reuse(){
         status = WAIT;
         next = NULL;
+        // Updates must happen before swap
         COMMIT_ALL_WRITES();
     }
 }__attribute__((aligned(CACHE_LINE_SIZE)));
@@ -135,17 +136,13 @@ static inline void AcquireParent(HMCS * L) {
     Acquire(L->parent, &(L->node));
 }
 
+static inline void Acquire(HMCS * L, QNode *I) {
 #define ACQUIRE_NEXT_LEVEL_MCS_LOCK(L) do{I=&(L->node); L=L->parent; goto START;} while(0)
 
-static inline void Acquire(HMCS * L, QNode *I) {
-    
 START:
-    
     // Prepare the node for use.
     I->Reuse();
-    
     QNode * pred = (QNode *) SWAP(&(L->lock), I);
-    
     if(!pred) {
         // I am the first one at this level
         // begining of cohort
@@ -157,14 +154,6 @@ START:
         }
     } else {
         pred->next = I;
-        
-        // ISYNC ... we dont want to start spinning before setting pred->next
-        //FORCE_INS_ORDERING();
-        // Contemplating if this needs to be an LWSYNC or ISYNC
-        //COMMIT_ALL_WRITES();
-        
-        
-        // JohnMC optimize 2 tests and reduce load when WAIT has ended.
         for(;;){
             uint64_t myStatus = I->status;
             if(myStatus < ACQUIRE_PARENT) {
@@ -180,6 +169,7 @@ START:
             // spin back; (I->status == WAIT)
         }
     }
+#undef ACQUIRE_NEXT_LEVEL_MCS_LOCK
 }
 
 static inline void AcquireWraper(HMCS * L, QNode *I) {
@@ -188,7 +178,6 @@ static inline void AcquireWraper(HMCS * L, QNode *I) {
 }
 
 inline static void NormalMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
-    
     QNode * succ = I->next;
     if(succ) {
         succ->status = val;
@@ -222,42 +211,32 @@ struct LockRelease {
         
         // Lower level releases
         if(curCount == L->GetThreshold()) {
-            
             succ  = I->next;
             // if I have successors, we'll try release
             if( tryRelease || succ) {
                 bool releaseVal = LockRelease<level - 1>::Release(L->parent, &(L->node), true /* try release */);
                 if(releaseVal){
-                    
                     COMMIT_ALL_WRITES();
-                    
-                    
                     // Tap successor at this level and ask to spin acquire next level lock
                     NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
                     return true; // released
                 }
-                
                 // retaining lock
                 // if tryRelease == true, pass it to descendents
                 if (tryRelease) {
                     return false; // not released
                 }
-                
                 // pass it to peers
                 // Tap successor at this level
                 succ->status=  COHORT_START; /* give one full chunk */
                 return true; //released
-                
             }
             
             // NO KNOWN SUCCESSORS / DESCENDENTS
             // reached threshold and have next level
             // release to next level
-            
             LockRelease<level - 1>::Release(L->parent, &(L->node));
-            
             COMMIT_ALL_WRITES();
-            
             // Tap successor at this level and ask to spin acquire next level lock
             NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
             return true; // Released
@@ -269,11 +248,9 @@ struct LockRelease {
             succ->status = curCount + 1;
             return true; // Released
         } else {
-            // NO KNOWN SUCCESSOR, so release
+            // No known successor, so release
             LockRelease<level - 1>::Release(L->parent, &(L->node));
-            
             COMMIT_ALL_WRITES();
-            
             // Tap successor at this level and ask to spin acquire next level lock
             NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
             return true; // Released
@@ -285,13 +262,16 @@ struct LockRelease {
 template <>
 struct LockRelease<1> {
     inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
-        uint64_t curCount = I->status;
         // Top level release is usual MCS
+        // At the top level MCS we always writr COHORT_START since
+        // 1. It will release the lock
+        // 2. Will never grow large
+        // 3. Avoids a read from I->status
         if(tryRelease) {
-            bool retVal = TryMCSReleaseWithValue(L, I, curCount);
+            bool retVal = TryMCSReleaseWithValue(L, I, COHORT_START);
             return retVal;
         }
-        NormalMCSReleaseWithValue(L, I, curCount);
+        NormalMCSReleaseWithValue(L, I, COHORT_START);
         return true;
     }
 };
@@ -329,6 +309,11 @@ inline static bool ReleaseWrapper(HMCS * L, QNode *I, int level) {
     }
 }
 
+void AlarmHandler(int sig) {
+    printf("\n Time out!\n");
+    exit(-1);
+}
+
 int main(int argc, char *argv[]){
     
     int totalIters = atoi(argv[1]);
@@ -342,23 +327,14 @@ int main(int argc, char *argv[]){
     }
     
     omp_set_num_threads(numThreads);
-    
     int numIter = totalIters / numThreads;
-    
-    //int levels = 4;
-    //int participantsAtLevel[] = {2, 4, 8, 16};
-    //omp_set_num_threads(16);
-    //int levels = 2;
-    //int participantsAtLevel[] = {12, 36};
-    //omp_set_num_threads(36);
-    
-    //int levels = 2;
-    //int participantsAtLevel[] = {2, 4};
-    //omp_set_num_threads(4);
-    
     struct timeval start;
     struct timeval end;
     uint64_t elapsed;
+    
+    // Set up alarm after 3 minutes to time out
+    signal(SIGALRM, AlarmHandler);
+    alarm(ALARM_TIME);
     
     
 #pragma omp parallel
@@ -369,10 +345,7 @@ int main(int argc, char *argv[]){
 #ifdef CHECK_THREAD_AFFINITY
         PrintAffinity(tid);
 #endif
-        
-        
         HMCS * hmcs = LockInit(tid, size, levels, participantsAtLevel);
-        
         if(tid == 0)
             gettimeofday(&start, 0);
         
