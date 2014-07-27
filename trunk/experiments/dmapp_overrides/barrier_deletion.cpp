@@ -36,6 +36,7 @@
 #include <execinfo.h>
 #include <stdlib.h>
 #include <tr1/unordered_map>
+#include <map>
 #include <vector>
 #include <stdint.h>
 #include <sys/stat.h>
@@ -48,10 +49,16 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sstream>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include<dmapp.h>
 #include<mpi.h>
+#include <errno.h>
 #include <alloca.h>
 #include <google/dense_hash_map>
+#include <google/dense_hash_set>
 #include "barrier_deletion.h"
 
 #define UNW_LOCAL_ONLY
@@ -61,19 +68,20 @@
 using namespace std;
 using namespace std::tr1;
 using google::dense_hash_map;
+using google::dense_hash_set;
 
 extern "C" {
     
 #define BARRIER_FN_NAME "MPI_Barrier"
 #define ALLGATHER_FN_NAME "MPI_Allgather"
 #define ALLREDUCE_FN_NAME "MPI_Allreduce"
-    
+#define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 #define REAL_FUNCTION(name)  __real_ ## name
 #define WRAPPED_FUNCTION(name)  __wrap_ ## name
     
     
     
-//#define USE_CONTEXT_IN_MPI_REDUCTION
+    //#define USE_CONTEXT_IN_MPI_REDUCTION
     
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
 #define ALL_REDUCE_BUFFER(buffer, status, ctxt)  do{ buffer[0] = (((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance());  buffer[1] = ctxt;} while(0)
@@ -87,11 +95,16 @@ extern "C" {
 #endif
     
     
+#define REPLAY_FILE_NAME "replay.txt"
+#define SKIPPABLE_CTXTS_FILE_NAME "skippables.txt"
+#define PARTICIPATED_CTXTS_FILE_NAME "participated.txt"
+#define GUIDED_OPTIMIZATION_CTXT_HASHES_FILE_NAME "ctxt_hashes.txt"
+    
     //#define ENABLE_LOGGING
     
     //#define ENABLE_REPLAY
     
-    //#define VERBOSE
+#define GUIDED_OPTIMIZATION
     
     /******** Globals variables **********/
     
@@ -101,17 +114,48 @@ extern "C" {
 #define REPLAY_PARTICIPATE 'P'
 #endif
     
+#ifdef GUIDED_OPTIMIZATION
+    enum GUIDED_OPTIMIZATION_MODE {GUIDED_OPTIMIZATION_MODE_ANALYZE, GUIDED_OPTIMIZATION_MODE_OPTIMIZE};
+#endif
+    
+    static int myRank = -1;
+    static MPI_Op myMPIOp;
+    
     struct GLOBAL_STATE_t {
         dense_hash_map<uint64_t, uint64_t> barrierSkipCache;
         dense_hash_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
+        
+#ifdef GUIDED_OPTIMIZATION
+        dense_hash_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
+        dense_hash_set<uint64_t>::iterator  guidedOptimizationSkipCtxtHashSetIterator;
+        map<void *, size_t> sharedDataRange;
+#endif
+        
         uint64_t barrierInstance;
         uint64_t enabledBarrierInstance;
         uint64_t skippable;
         uint64_t reSync;
         uint64_t badDecison;
         uint64_t lastParticipatedBarrier;
+        uint64_t systemPageSize;
+        
         void * stackBottom;
         bool isEnabled;
+        
+        // Constructor
+        GLOBAL_STATE_t():
+        barrierInstance(0),
+        enabledBarrierInstance(0),
+        skippable(0),
+        reSync(0),
+        badDecison(0),
+        lastParticipatedBarrier(0),
+        stackBottom(0),
+        isEnabled(false) {
+            
+            systemPageSize = sysconf(_SC_PAGESIZE);
+            
+        }
         
         void Enable() {
             isEnabled = true;
@@ -123,15 +167,17 @@ extern "C" {
             return isEnabled;
         }
         
-        
-        
         void SetStackBottom(void* bottom) {
             stackBottom = bottom;
         }
+        
         void * GetStackBottom(){
             return stackBottom;
         }
         
+        uint64_t GetPageSize () const{
+            return systemPageSize;
+        }
         
         void SetLastParticipatedBarrier(uint64_t lpb) {
             lastParticipatedBarrier = lpb;
@@ -193,11 +239,99 @@ extern "C" {
         }
 #endif
         
+#ifdef GUIDED_OPTIMIZATION
+        GUIDED_OPTIMIZATION_MODE guidedOptimizationMode;
+        
+        void SetGuidedOptimizationMode(GUIDED_OPTIMIZATION_MODE mode){
+            guidedOptimizationMode = mode;
+        }
+        
+        GUIDED_OPTIMIZATION_MODE GetGuidedOptimizationMode(){
+            return guidedOptimizationMode;
+        }
+        
+        void InsertInSharedDataRange(void * addr, size_t sz) {
+            map<void *, size_t>::iterator up = sharedDataRange.upper_bound(addr);
+            // Ensure this range is not in the map
+            if(up != sharedDataRange.end()) {
+                assert(up->first  >= addr + sz);
+            }
+            if ( up != sharedDataRange.begin()) {
+                up --;
+                assert(addr  >= up->first + up->second);
+                up ++;
+            }
+            sharedDataRange[addr] = sz;
+#if 0
+            if(myRank == 0) {
+                printf("\n Added %p .. %lu\n", addr, sz);
+            }
+#endif
+        }
+        
+        void DeleteFromSharedDataRange(void * addr, size_t sz){
+#if 0
+            if(myRank == 0) {
+                printf("\n Deleting %p .. %lu\n", addr, sz);
+            }
+#endif
+            int num = sharedDataRange.erase(addr);
+            assert(num == 1);
+#if 0
+            if(myRank == 0) {
+                printf("\n Deleted %p .. %lu\n", addr, sz);
+            }
+#endif
+        }
+        
+        void DumpSharedDataRange() {
+            printf("\n DumpSharedDataRange\n");
+            for(map<void *, size_t>::iterator it = sharedDataRange.begin(), e = sharedDataRange.end(); it != e; it++){
+                printf("\n Addr = %p, len = %lu",it->first, it->second);
+            }
+        }
+        void FindAddrInSharedDataRange(void * addr, void * & startAddr, size_t & sz){
+#if 0
+            if(myRank == 0) {
+                printf("\n Looking for addr %p\n", addr);
+                DumpSharedDataRange();
+            }
+#endif
+            map<void *, size_t>::iterator ub = sharedDataRange.upper_bound(addr);
+            
+            if(ub != sharedDataRange.end() && ub != sharedDataRange.begin()) {
+                ub --;
+                assert(ub->first <= addr && addr < ub->first + ub->second);
+                ub++;
+            }
+            
+            ub --;
+            
+            startAddr = ub->first;
+            sz = ub->second;
+            
+#if 0
+            if(myRank == 0) {
+                printf("\n Found %p .. %lu\n", addr, sz);
+            }
+#endif
+        }
+        
+        void PageProtectAllSharedData(int flags){
+            for(map<void *, size_t>::iterator it = sharedDataRange.begin(), e = sharedDataRange.end(); it != e; it++){
+                int rc = mprotect(it->first, it->second, flags);
+                if(rc) {
+                    perror("mprotect failed in PageProtectAllSharedData");
+                    assert(0 && "failed in PageProtectAllSharedData");
+                }
+            }
+        }
+#endif
+        
     } ;
     GLOBAL_STATE_t GLOBAL_STATE;
     
-    static int myRank = -1;
-    static MPI_Op myMPIOp;
+    
     
     
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
@@ -236,14 +370,11 @@ extern "C" {
     }
 #endif
     
-    static void DumpRedundancyMap();
+    static void DumpMaps();
     
     static void PrintStats() {
         if(myRank == 0) {
             printf("\n Total Barriers = %lu, Enabled = %lu, Skippable =%lu, reSync = %lu, bad decision = %lu", GLOBAL_STATE.GetBarrierInstance(), GLOBAL_STATE.GetEnabledBarrierInstance(), GLOBAL_STATE.GetSkippable(), GLOBAL_STATE.GetReSync(), GLOBAL_STATE.GetBadDecision());
-#ifdef VERBOSE
-            //        DumpRedundancyMap();
-#endif
         }
     }
     __thread bool gAccessedRemoteData;
@@ -401,10 +532,11 @@ asm volatile ( #name ":" )
     };
     
     static unordered_map<uint64_t, vector<void*> > backtraceMap;
+    static unordered_map<uint64_t, uint64_t > participatedBarriersMap;
     typedef unordered_map<RedundancyKey, uint64_t, Hasher, EqualFn> RedundancyMap_t;
     static RedundancyMap_t redundancyMap;
     
-    static inline uint64_t GetContextHashWithBackTrace() {
+    static inline uint64_t GetContextHashWithBackTrace(bool getBackTrace=true) {
         unw_cursor_t cursor;
         unw_context_t uc;
         unw_word_t ip, sp;
@@ -416,30 +548,35 @@ asm volatile ( #name ":" )
         
         while(unw_step(&cursor) > 0) {
             unw_get_reg(&cursor, UNW_REG_IP, &ip);
-            /*if(first) {
-             unw_get_reg(&cursor, UNW_REG_SP, &sp);
-             first = false;
-             } */
-            btVec.push_back((void*) ip);
             hash += ip;
+            hash += (hash << 10);
+            hash ^= (hash >> 6);
+            
+            if(getBackTrace) {
+                btVec.push_back((void*) ip);
+            }
         }
+        hash += (hash << 3);
+        hash ^= (hash >> 11);
+        hash += (hash << 15);
         
-        // if this hash is never seen before, record it.
-        unordered_map<uint64_t, vector<void*> >::iterator  ii = backtraceMap.find(hash);
-        
-        if(ii == backtraceMap.end()) {
-            backtraceMap[hash] = btVec;
-            //if (myRank ==0) printf("\n New Key in backtraceMap vec = %lx: %d\n",hash, btVec.size()) ;
+        if(getBackTrace) {
+            // if this hash is never seen before, record it.
+            unordered_map<uint64_t, vector<void*> >::iterator  ii = backtraceMap.find(hash);
+            
+            if(ii == backtraceMap.end()) {
+                backtraceMap[hash] = btVec;
+                //if (myRank ==0) printf("\n New Key in backtraceMap vec = %lx: %d\n",hash, btVec.size()) ;
+            }
         }
         
         //hash  = ((hash & 0xffffffff) << (31)) | ( ((uint64_t) sp) & 0xffffffff);
         return  hash;
     }
     
-    static inline void RecordInRedundancyMap(uint64_t curBarrierHash) {
-        RedundancyKey key = {GLOBAL_STATE.GetLastParticipatedBarrier(), curBarrierHash};
+    
+    static inline void RecordInRedundancyMap(RedundancyKey key) {
         RedundancyMap_t::iterator  ri = redundancyMap.find(key);
-        
         if(ri  != redundancyMap.end()) {
             ri->second ++;
             /*
@@ -458,32 +595,85 @@ asm volatile ( #name ":" )
         }
     }
     
+    static inline void RecordKeyInRedundancyMap(uint64_t curBarrierHash) {
+        RedundancyKey key = {GLOBAL_STATE.GetLastParticipatedBarrier(), curBarrierHash};
+        RecordInRedundancyMap(key);
+    }
     
-    static void DumpStack(uint64_t key) {
+    static inline void DeleteFromRedundancyMap(RedundancyKey key) {
+        
+        redundancyMap.erase(key);
+        /*
+         
+         RedundancyMap_t::iterator  ri = redundancyMap.find(key);
+         
+         if(ri  != redundancyMap.end()) {
+         return;
+         } else {
+         redundancyMap.erase(ri);
+         }
+         */
+        //printf("\n  Deleted RecordInParticipateBarriersMap \n");
+        
+    }
+    
+    static inline void RecordInParticipateBarriersMap(uint64_t curBarrierHash) {
+        unordered_map<uint64_t, uint64_t >::iterator  ri = participatedBarriersMap.find(curBarrierHash);
+        
+        if(ri  != participatedBarriersMap.end()) {
+            ri->second ++;
+        } else {
+            participatedBarriersMap[curBarrierHash] = 1;
+        }
+    }
+    
+    static void DumpStack(uint64_t key, FILE * fp) {
         assert(backtraceMap.find(key) != backtraceMap.end());
         vector <void*>& stack = backtraceMap[key];
         
         //printf("\n %d", stack.size());
         for(int i = 0; i < stack.size(); i++)
-            printf("\t %lx", stack[i]);
+            fprintf(fp, "\t %lx", stack[i]);
     }
     
+    
+    
     static void DumpRedundancyMap() {
+        FILE * fp = fopen(SKIPPABLE_CTXTS_FILE_NAME, "w");
+        assert(fp);
+        fprintf(fp, "#occurance : percent : HASH1 (last barrier) : Ret-addr-list1 : HASH2 (skippable barrier): Ret-addr-list2 ");
         for(RedundancyMap_t::iterator ri = redundancyMap.begin(); ri != redundancyMap.end(); ri++) {
             uint64_t lpb = ri->first.lastBarrier;
             uint64_t cb = ri->first.curBarrier;
             //printf("\n lpb = %lx cb = %lx\n", lpb, cb);
-            printf("\n ================\n");
-            printf("%lu : ", ri->second);
+            fprintf(fp, "\n%lu : %fl : %lu : ", ri->second,  ri->second * 100.0 / GLOBAL_STATE.GetSkippable(), lpb);
             
             if(lpb != 0)
-                DumpStack(lpb);
+                DumpStack(lpb, fp);
             else
-                printf(" 0 ");
+                fprintf(fp, " 0 ");
             
-            printf(" : ");
-            DumpStack(cb);
+            fprintf(fp, ": %lu : ", cb);
+            DumpStack(cb, fp);
         }
+        fclose(fp);
+    }
+    
+    static void DumpParticipaedBarriersMap() {
+        FILE * fp = fopen(PARTICIPATED_CTXTS_FILE_NAME, "w");
+        assert(fp);
+        fprintf(fp, "#occurance : percent : HASH : Ret-addr-list");
+        for(unordered_map<uint64_t, uint64_t >::iterator pi = participatedBarriersMap.begin(); pi != participatedBarriersMap.end(); pi++) {
+            uint64_t cb = pi->first;
+            fprintf(fp, "\n%lu : %fl : %lu : ", pi->second,  pi->second * 100.0 / (  GLOBAL_STATE.GetEnabledBarrierInstance() - GLOBAL_STATE.GetSkippable()), cb);
+            DumpStack(cb, fp);
+        }
+        fclose(fp);
+    }
+    
+    static void DumpMaps(){
+        DumpRedundancyMap();
+        DumpParticipaedBarriersMap();
     }
     
     
@@ -589,6 +779,10 @@ asm volatile ( #name ":" )
         // We have already decided to participate for this barrier
         GLOBAL_STATE.SetLastParticipatedBarrier(key);
         
+#ifdef GUIDED_OPTIMIZATION
+        RecordInParticipateBarriersMap(key);
+#endif
+        
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
         uint64_t recvBuf[2];
         uint64_t sendBuf[2];
@@ -620,11 +814,11 @@ asm volatile ( #name ":" )
             // The decision still holds good.
             Log(comm, key, "Skipping:", curBarrierInstance, gAccessedRemoteData);
             GLOBAL_STATE.IncrementSkippable();
-#ifdef VERBOSE
-            RecordInRedundancyMap(key);
+#ifdef GUIDED_OPTIMIZATION
+            RecordKeyInRedundancyMap(key);
 #endif
             
-            //#define BARRIER_DEBUG
+#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
             
             uint64_t receiveStatus;
@@ -771,7 +965,6 @@ asm volatile ( #name ":" )
     static struct timeval t1, t2;
     static struct timeval mpiInitTime, mpiFinalizeTime;
     
-#define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
     
     static void EnableBarrierOptimization() {
         if(myRank == 0) {
@@ -812,7 +1005,7 @@ asm volatile ( #name ":" )
     
     // fortran interface
     void disable_barrier_optimization_() {
-        DisableBarrierOptimization();
+        //DisableBarrierOptimization();
     }
     
 #ifdef ENABLE_REPLAY
@@ -823,7 +1016,7 @@ asm volatile ( #name ":" )
     }
     
     void WriteReplayLogToFile(){
-        FILE * replayFP = fopen("replay.txt", "w");
+        FILE * replayFP = fopen(REPLAY_FILE_NAME, "w");
         assert(replayFP);
         for( int i = 0; i < replayLog.size(); i++) {
             char val = replayLog[i];
@@ -833,7 +1026,7 @@ asm volatile ( #name ":" )
     }
     
     void ReadReplayLogToFile(){
-        FILE * replayFP = fopen("replay.txt", "r");
+        FILE * replayFP = fopen(REPLAY_FILE_NAME, "r");
         assert(replayFP);
         char val;
         while((val = fgetc(replayFP)) != EOF) {
@@ -852,20 +1045,22 @@ asm volatile ( #name ":" )
     }
 #endif
     
-    int WRAPPED_FUNCTION(MPI_Barrier)(MPI_Comm comm) {
-        int retVal = MPI_SUCCESS;
-        // increment the barrrier instance
-        uint64_t curBarrierInstance = GLOBAL_STATE.IncrementBarrierInstance();
-        
-        // Not enabled, simple do the barrier and return
-        if(!GLOBAL_STATE.IsEnabled()) {
-            return REAL_FUNCTION(MPI_Barrier)(comm);
+    
+#ifdef GUIDED_OPTIMIZATION
+    static inline void ReadGuidedOptimizationLogFile(){
+        FILE * fp = fopen(GUIDED_OPTIMIZATION_CTXT_HASHES_FILE_NAME, "w");
+        assert(fp);
+        uint64_t hashToSkip;
+        while((fscanf(fp,"%lu", &hashToSkip) == 1)) {
+            GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.insert(hashToSkip);
         }
-        
-        // Enabled, hence perform tracking / optimization
-        
-        
+        fclose(fp);
+    }
+#endif
+    
 #ifdef ENABLE_REPLAY
+    // Reply the decision made in the last run.
+    static inline void PerformBarrierReplay(MPI_Comm comm){
         if (GLOBAL_STATE.GetReplayMode() == REPLAY_MODE_REPLAY){
             // If we are in reply mode, we will return from here.
             
@@ -884,12 +1079,104 @@ asm volatile ( #name ":" )
                 }
             }
         }
+    }
+#endif
+    
+#ifdef GUIDED_OPTIMIZATION
+    
+    void UnprotectAllPages(){
+        GLOBAL_STATE.PageProtectAllSharedData(PROT_READ | PROT_WRITE | PROT_EXEC);
+    }
+    
+    static inline int HandleGuidedAnalyze(MPI_Comm comm, uint64_t key) {
+        
+        uint64_t recvBuf;
+        const int POTENTIAL_SKIP = 1;
+        uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : POTENTIAL_SKIP;
+        sendBuf = ALL_REDUCE_BUFFER(sendBuf);
+        int retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
+        
+        RedundancyKey rKey = {/* last barrier = */ 0, /*cur barrier =*/ key};
+        
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == POTENTIAL_SKIP /* TODO... do we need this ?&& ! gDisableAnalysis */) {
+            // if it is not in participate map, record in redundancy map.
+            if (participatedBarriersMap.find(key) == participatedBarriersMap.end())
+                RecordInRedundancyMap(rKey);
+            // else this is non skippable barrier.
+        } else {
+            RecordInParticipateBarriersMap(key);
+            // remove this key from redundancy map if recorded there
+            DeleteFromRedundancyMap(rKey);
+        }
+        
+        GLOBAL_STATE.PageProtectAllSharedData(PROT_NONE);
+        
+        // reset gAccessedRemoteData to false since we just did a barrier.
+        gAccessedRemoteData = false;
+        
+        return retVal;
+        
+    }
+    
+    static inline int HandleGuidedOptimization(MPI_Comm comm, uint64_t key) {
+        GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator = GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.find(key);
+        // found
+        if(GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator == GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.end()) {
+            // Skip this barrier
+            return MPI_SUCCESS;
+        } else {
+            // Perform this barrier
+            // TODO: Should we force a dmapp sync here? May be not since the user is supposed to have provided a sanitized set of skippables.
+            // dmapp_return_t t = dmapp_gsync_wait();
+            // assert(t == DMAPP_RC_SUCCESS);
+            return REAL_FUNCTION(MPI_Barrier)(comm);
+        }
+    }
+    
+    static inline int PerformGuidedOptimization(MPI_Comm comm){
+        GUIDED_OPTIMIZATION_MODE mode = GLOBAL_STATE.GetGuidedOptimizationMode();
+        bool getBackTrace = (mode == GUIDED_OPTIMIZATION_MODE_ANALYZE);
+        uint64_t key = GetContextHashWithBackTrace(getBackTrace);
+        
+        switch (GLOBAL_STATE.GetGuidedOptimizationMode()) {
+            case GUIDED_OPTIMIZATION_MODE_ANALYZE:
+                return HandleGuidedAnalyze(comm, key);
+                break;
+            case GUIDED_OPTIMIZATION_MODE_OPTIMIZE:
+                return HandleGuidedOptimization(comm, key);
+                break;
+            default:
+                assert(0 && "Should never reach here");
+                break;
+        }
+    }
+#endif
+    int WRAPPED_FUNCTION(MPI_Barrier)(MPI_Comm comm) {
+        int retVal = MPI_SUCCESS;
+        // increment the barrrier instance
+        uint64_t curBarrierInstance = GLOBAL_STATE.IncrementBarrierInstance();
+        
+        // Not enabled, simple do the barrier and return
+        if(!GLOBAL_STATE.IsEnabled()) {
+            return REAL_FUNCTION(MPI_Barrier)(comm);
+        }
+        
+        // Enabled, hence perform tracking / optimization
+        
+        
+#ifdef ENABLE_REPLAY
+        // In replay mode, simply reply the barrier and return.
+        PerformBarrierReplay(comm);
+        return;
 #endif
         
-#ifdef VERBOSE
-        uint64_t key = GetContextHashWithBackTrace();
+        uint64_t key;
+        
+#ifdef GUIDED_OPTIMIZATION
+        return PerformGuidedOptimization(comm);
 #else
-        uint64_t key = GetContextHash();
+        key = GetContextHash();
 #endif
         // Is this barrier previously seen?
         GLOBAL_STATE.barrierSkipCacheIterator = GLOBAL_STATE.barrierSkipCache.find(key);
@@ -942,7 +1229,7 @@ asm volatile ( #name ":" )
     int WRAPPED_FUNCTION(MPI_Allgather)(const void* sendbuf, int sendcount, MPI_Datatype sendtype, void* recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm) {
         int retVal = REAL_FUNCTION(MPI_Allgather)(sendbuf,  sendcount,  sendtype, recvbuf,  recvcount,  recvtype, comm);
         /*
-         #ifdef VERBOSE
+         #ifdef GUIDED_OPTIMIZATION
          uint64_t key = GetContextHashWithBackTrace();
          GLOBAL_STATE.SetLastParticipatedBarrier(key);
          Log(comm, key, "MPI_Allgather:");
@@ -956,7 +1243,7 @@ asm volatile ( #name ":" )
     int WRAPPED_FUNCTION(MPI_Bcast)(void* buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm) {
         int retVal = REAL_FUNCTION(MPI_Bcast)(buffer, count, datatype, root, comm);
         /*
-         #ifdef VERBOSE
+         #ifdef GUIDED_OPTIMIZATION
          uint64_t key = GetContextHashWithBackTrace();
          GLOBAL_STATE.SetLastParticipatedBarrier(key);
          Log(comm, key, "MPI_Bcast:");
@@ -970,7 +1257,7 @@ asm volatile ( #name ":" )
     int WRAPPED_FUNCTION(MPI_Allreduce)(const void* sendbuf, void* recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm) {
         int retVal = REAL_FUNCTION(MPI_Allreduce)(sendbuf, recvbuf, count, datatype,  op,  comm);
         /*
-         #ifdef VERBOSE
+         #ifdef GUIDED_OPTIMIZATION
          uint64_t key = GetContextHashWithBackTrace();
          GLOBAL_STATE.SetLastParticipatedBarrier(key);
          Log(comm, key, "MPI_Allreduce:");
@@ -980,23 +1267,7 @@ asm volatile ( #name ":" )
         return retVal;
     }
     
-    int WRAPPED_FUNCTION(MPI_Init)(int* argc, char** *argv) {
-        int retVal = REAL_FUNCTION(MPI_Init)(argc, argv);
-        
-        // make sure dense_hash_map is initialized with empty key
-        GLOBAL_STATE.barrierSkipCache.set_empty_key(0);
-        
-        // Register my reduction op
-        MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
-        atexit(PrintStats);
-        MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-        
-        
-        // Get time after statring MPI
-        if(myRank == 0) {
-            gettimeofday(&mpiInitTime, NULL);
-        }
-        
+    static inline void ReadEnvironemtalVariables(){
 #ifdef ENABLE_REPLAY
         char * val = getenv("NWCHEM_REPLAYMODE");
         if(val) {
@@ -1005,28 +1276,154 @@ asm volatile ( #name ":" )
                 // write the replay log to a file
                 if(myRank == 0)
                     atexit(WriteReplayLogToFile);
-                    } else if (strcmp(val,"replay") == 0) {
-                        ReadReplayLogToFile();
-                        GLOBAL_STATE.SetReplayMode(REPLAY_MODE_REPLAY);
-                    } else {
-                        printf("\n Invalid NWCHEM_REPLAYMODE value %s", val);
-                        exit(-1);
-                    }
+            } else if (strcmp(val,"replay") == 0) {
+                ReadReplayLogToFile();
+                GLOBAL_STATE.SetReplayMode(REPLAY_MODE_REPLAY);
+            } else {
+                printf("\n Invalid NWCHEM_REPLAYMODE value %s", val);
+                exit(-1);
+            }
         }
 #endif
+        
+#ifdef GUIDED_OPTIMIZATION
+        char * val = getenv("NWCHEM_GUIDED_OPTIMIZATION_MODE");
+        if(val) {
+            if (strcmp(val,"analyze") == 0 ) {
+                GLOBAL_STATE.SetGuidedOptimizationMode(GUIDED_OPTIMIZATION_MODE_ANALYZE);
+                // write the replay log to a file
+                if(myRank == 0)
+                    atexit(DumpMaps);
+            } else if (strcmp(val,"optimize") == 0) {
+                ReadGuidedOptimizationLogFile();
+                GLOBAL_STATE.SetGuidedOptimizationMode(GUIDED_OPTIMIZATION_MODE_OPTIMIZE);
+            } else {
+                printf("\n Invalid NWCHEM_GUIDED_OPTIMIZATION_MODE value %s", val);
+                exit(-1);
+            }
+        }
+#endif
+    }
+    
+#ifdef GUIDED_OPTIMIZATION
+    
+    extern dmapp_return_t REAL_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) ;
+    dmapp_return_t WRAPPED_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) {
+        dmapp_return_t retVal = REAL_FUNCTION(dmapp_mem_register)(addr, length, seg_desc);
+        gAccessedRemoteData = true;
+        
+        //Record the address range in the map.
+        GLOBAL_STATE.InsertInSharedDataRange(seg_desc->addr, seg_desc->len);
+        
+        // protect the page
+        int rc = mprotect (seg_desc->addr, seg_desc->len, PROT_NONE);
+        if(rc) {
+            perror("mprotect failed in dmapp_mem_register");
+        }
+        return retVal;
+    }
+    
+    extern dmapp_return_t REAL_FUNCTION(dmapp_mem_unregister) ( dmapp_seg_desc_t *seg_desc) ;
+    dmapp_return_t WRAPPED_FUNCTION(dmapp_mem_unregister) ( dmapp_seg_desc_t *seg_desc) {
+        
+        // unprotect the page
+        int rc = mprotect (seg_desc->addr, seg_desc->len, PROT_READ | PROT_WRITE | PROT_EXEC );
+        if(rc) {
+            perror("mprotect failed in dmapp_mem_register");
+        }
+        // Remove the address range in the map.
+        GLOBAL_STATE.DeleteFromSharedDataRange(seg_desc->addr, seg_desc->len);
+        
+        dmapp_return_t retVal =  REAL_FUNCTION(dmapp_mem_unregister)(seg_desc);
+        gAccessedRemoteData = true;
+        
+        return retVal;
+    }
+    
+    void PageProtectionHandler(int sig, siginfo_t *si, void *unused){
+        void * faultAddress;
+        size_t len;
+        GLOBAL_STATE.FindAddrInSharedDataRange(si->si_addr, faultAddress, len);
+        
+        // This indicate that the remote data is accessed.
+        gAccessedRemoteData = true;
+        
+        // Faulting page
+        // Change protection to R+W
+        int rc = mprotect (faultAddress, len, PROT_READ | PROT_WRITE);
+        if(rc) {
+            perror("mprotect failed in PageProtectionHandler");
+        }
+    }
+    
+    static inline void InitializeGuidedOptimization(){
+        // make sure dense_hash_map is initialized with empty key
+        GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(0);
+        
+        //Setup SIGSEGV handler for detecting touches to shared memory pages
+        // signal handler
+        struct sigaction sa;
+        /* Install segv_handler as the handler for SIGSEGV. */
+        memset (&sa, 0, sizeof (sa));
+        sa.sa_sigaction = &PageProtectionHandler;
+        sa.sa_flags = SA_SIGINFO;
+        sigaction (SIGSEGV, &sa, NULL);
+        
+    }
+#endif
+    
+    static inline void InitBarrierDeleter(){
+        // make sure dense_hash_map is initialized with empty key
+        GLOBAL_STATE.barrierSkipCache.set_empty_key(0);
+        
+        // Register my reduction op
+        MPI_Op_create(MyMPIReductionOp, 1 /*commute*/, &myMPIOp);
+        
+        // At enxit print some stats
+        atexit(PrintStats);
+        
+        // Record your rank
+        MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+        
+        //HACK HACK ... delete me
+        enable_barrier_optimization_();
+        
+        
+        // Get time after statring MPI
+        if(myRank == 0) {
+            gettimeofday(&mpiInitTime, NULL);
+        }
+        
+        ReadEnvironemtalVariables();
+        
+#ifdef GUIDED_OPTIMIZATION
+        InitializeGuidedOptimization();
+#endif
+        
         
 #ifdef ENABLE_LOGGING
         CreateLogFile(myRank);
 #ifdef VERBOSE
         
         // Register on exit function
-        if(myRank == 0)
-            atexit(DumpRedundancyMap);
-            
+        if(myRank == 0) {
+            atexit(DumpMaps);
+        }
+        
 #endif
-            atexit(CloseLogFile);
+        atexit(CloseLogFile);
 #endif
-            return retVal;
+        
+        
+        
+    }
+    
+    int WRAPPED_FUNCTION(MPI_Init)(int* argc, char** *argv) {
+        int retVal = REAL_FUNCTION(MPI_Init)(argc, argv);
+        
+        InitBarrierDeleter();
+        
+        return retVal;
     }
     
     

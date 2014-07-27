@@ -17,4 +17,5 @@ extern "C" {
     extern void enable_barrier_optimization_();
     extern void disable_barrier_optimization_();
     extern void disable_and_cleanup_barrier_optimization_();
+    extern void UnprotectAllPages();
 }
