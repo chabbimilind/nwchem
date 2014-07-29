@@ -36,6 +36,7 @@
 #include <execinfo.h>
 #include <stdlib.h>
 #include <tr1/unordered_map>
+#include <tr1/unordered_set>
 #include <map>
 #include <vector>
 #include <stdint.h>
@@ -81,15 +82,15 @@ extern "C" {
     
     
     
-    //#define USE_CONTEXT_IN_MPI_REDUCTION
+//#define USE_CONTEXT_IN_MPI_REDUCTION
     
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
-#define ALL_REDUCE_BUFFER(buffer, status, ctxt)  do{ buffer[0] = (((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance());  buffer[1] = ctxt;} while(0)
+#define ALL_REDUCE_BUFFER(buffer, status, ctxt)  do{ buffer[0] = (((uint64_t)(status) << 32 ) | GLOBAL_STATE.GetBarrierInstance());  buffer[1] = ctxt;} while(0)
 #define ALL_REDUCE_GET_STATUS(buffer) ((buffer[0]) >> 32 )
 #define ALL_REDUCE_GET_INSTANCE(buffer) ((buffer[0]) & 0xffffffff)
 #define ALL_REDUCE_GET_CONTEXT(buffer) ((buffer[1]))
 #else
-#define ALL_REDUCE_BUFFER(status) ( ((status) << 32 ) | GLOBAL_STATE.GetBarrierInstance())
+#define ALL_REDUCE_BUFFER(status) ( ((uint64_t)(status) << 32 ) | GLOBAL_STATE.GetBarrierInstance())
 #define ALL_REDUCE_GET_STATUS(buffer) ( (buffer) >> 32 )
 #define ALL_REDUCE_GET_INSTANCE(buffer) ((buffer) & 0xffffffff)
 #endif
@@ -104,7 +105,7 @@ extern "C" {
     
     //#define ENABLE_REPLAY
     
-#define GUIDED_OPTIMIZATION
+//#define GUIDED_OPTIMIZATION
     
     /******** Globals variables **********/
     
@@ -126,8 +127,8 @@ extern "C" {
         dense_hash_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
         
 #ifdef GUIDED_OPTIMIZATION
-        dense_hash_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
-        dense_hash_set<uint64_t>::iterator  guidedOptimizationSkipCtxtHashSetIterator;
+        unordered_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
+        unordered_set<uint64_t>::iterator  guidedOptimizationSkipCtxtHashSetIterator;
         map<void *, size_t> sharedDataRange;
 #endif
         
@@ -346,13 +347,13 @@ extern "C" {
         uint64_t retStatus = statusA < statusB ? statusA : statusB;
         // Min of barrier instance
         uint64_t retInstance = instanceA < instanceB ? instanceA : instanceB;
-        b1[0] = (((retStatus) << 32) | retInstance);
+        ((uint64_t*)b)[0] = (((retStatus) << 32) | retInstance);
         
         uint64_t ctxt1 = ALL_REDUCE_GET_CONTEXT(a1);
         uint64_t ctxt2 = ALL_REDUCE_GET_CONTEXT(b1);
         // If context's dont match return 0.
         if(ctxt1 != ctxt2)
-            b1[1] = 0;
+            ((uint64_t*)b)[1] = 0;
     }
 #else
     static void MyMPIReductionOp(void* a, void* b, int* len, MPI_Datatype* type) {
@@ -505,6 +506,7 @@ asm volatile ( #name ":" )
             hash += (hash << 10);
             hash ^= (hash >> 6);
         }
+        
         hash += (hash << 3);
         hash ^= (hash >> 11);
         hash += (hash << 15);
@@ -788,7 +790,7 @@ asm volatile ( #name ":" )
         uint64_t sendBuf[2];
         uint64_t sendStatus = PARTICIPATE;
         ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
-        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
 #else
         uint64_t recvBuf;
@@ -818,7 +820,7 @@ asm volatile ( #name ":" )
             RecordKeyInRedundancyMap(key);
 #endif
             
-#define BARRIER_DEBUG
+//#define BARRIER_DEBUG
 #ifdef BARRIER_DEBUG
             
             uint64_t receiveStatus;
@@ -828,7 +830,7 @@ asm volatile ( #name ":" )
             uint64_t sendBuf[2];
             ALL_REDUCE_BUFFER(sendBuf, SKIP, key);
             // Ensure the assumption is not violated by any process
-            retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+            retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
             assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
 #else
             uint64_t recvBuf;
@@ -852,6 +854,8 @@ asm volatile ( #name ":" )
                 GLOBAL_STATE.IncrementBadDecision();
                 
                 if(myRank == 0) {
+                    printf("\n ALL_REDUCE_GET_STATUS(recvBuf) = %lu", ALL_REDUCE_GET_STATUS(recvBuf)) ;
+
                     printf("\n Bad decision at") ;
                     PrintBT();
                 }
@@ -867,7 +871,7 @@ asm volatile ( #name ":" )
             uint64_t sendBuf[2];
             uint64_t sendStatus = PARTICIPATE;
             ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
-            retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+            retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
             assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
 #else
             uint64_t recvBuf;
@@ -910,7 +914,7 @@ asm volatile ( #name ":" )
         uint64_t newVal = val + 1;
         uint64_t sendStatus = gAccessedRemoteData ? PARTICIPATE : newVal;
         ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
-        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
 #else
         uint64_t recvBuf;
@@ -941,7 +945,7 @@ asm volatile ( #name ":" )
         uint64_t sendBuf[2];
         uint64_t sendStatus= gAccessedRemoteData ? PARTICIPATE : 1;
         ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
-        retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
+        retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
 #else
         uint64_t recvBuf;
@@ -1005,7 +1009,7 @@ asm volatile ( #name ":" )
     
     // fortran interface
     void disable_barrier_optimization_() {
-        //DisableBarrierOptimization();
+        DisableBarrierOptimization();
     }
     
 #ifdef ENABLE_REPLAY
@@ -1048,7 +1052,7 @@ asm volatile ( #name ":" )
     
 #ifdef GUIDED_OPTIMIZATION
     static inline void ReadGuidedOptimizationLogFile(){
-        FILE * fp = fopen(GUIDED_OPTIMIZATION_CTXT_HASHES_FILE_NAME, "w");
+        FILE * fp = fopen(GUIDED_OPTIMIZATION_CTXT_HASHES_FILE_NAME, "r");
         assert(fp);
         uint64_t hashToSkip;
         while((fscanf(fp,"%lu", &hashToSkip) == 1)) {
@@ -1123,9 +1127,9 @@ asm volatile ( #name ":" )
     static inline int HandleGuidedOptimization(MPI_Comm comm, uint64_t key) {
         GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator = GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.find(key);
         // found
-        if(GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator == GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.end()) {
+        if(GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator != GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.end()) {
             // Skip this barrier
-            return MPI_SUCCESS;
+            return  MPI_SUCCESS;
         } else {
             // Perform this barrier
             // TODO: Should we force a dmapp sync here? May be not since the user is supposed to have provided a sanitized set of skippables.
@@ -1362,7 +1366,7 @@ asm volatile ( #name ":" )
     
     static inline void InitializeGuidedOptimization(){
         // make sure dense_hash_map is initialized with empty key
-        GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(0);
+        //GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(0);
         
 #if 0
         // Disable page protection
@@ -1393,7 +1397,7 @@ asm volatile ( #name ":" )
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
         
         //HACK HACK ... delete me
-        enable_barrier_optimization_();
+        // enable_barrier_optimization_();
         
         
         // Get time after statring MPI
