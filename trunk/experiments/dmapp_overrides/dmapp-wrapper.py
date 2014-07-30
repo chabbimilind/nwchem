@@ -63,14 +63,10 @@ extern "C" {
         fp.write('extern ' + sig[0] +  ' REAL_FUNCTION(' +  sig[1] + ') (' + sig[2] + ') ;\n' )
         fp.write(sig[0] +  ' WRAPPED_FUNCTION(' +  sig[1] + ') (' + sig[2] + ') {\n' )
 
-        if 3 < len(sig) and sig[3]:
-            fp.write('\t gDisableAnalysis += 1;\n')
-            fp.write('\t ')
-            if sig[0] != 'void':
-               fp.write(sig[0] + ' result = ')
-        else:
-	    fp.write('\t gAccessedRemoteData = true;\n')
-            fp.write('\t return ')
+        if 'get' in sig[1] or 'ga_zero' in sig[1]:
+            fp.write('\t gRemoteGetSeen = true;\n')
+        fp.write('\t gAccessedRemoteData = true;\n')
+        fp.write('\t return ')
 
         fp.write('REAL_FUNCTION(' + sig[1] + ')(') 
  
@@ -88,11 +84,6 @@ extern "C" {
 
         fp.write( ');\n')
 
-        if 3 < len(sig) and sig[3]:
-            fp.write('\t gDisableAnalysis -= 1;\n')
-            if sig[0] != 'void':
-                fp.write('\t return result;\n')
- 
         fp.write('}\n')
     fp.write('}\n')
     fp.close();
@@ -125,11 +116,7 @@ for line in lines:
     	#print last
     signatures.append((funcPrefix, funcName, noDefaultArgs))
 
-# add a few GA APIs for the benefit of GA_Zero
-signatures.append(('void', 'pnga_access_ptr', 'int g_a, int lo[], int hi[], void* ptr, int ld[]'))
-signatures.append(('void', 'pnga_access_block_segment_ptr', 'int g_a, int proc, void* ptr, int *len'))
-
-# GA_Zero itself
+# explicitly add GA_Zero
 signatures.append(('void', 'ga_zero_', 'int g_a', True))
 
 WriteDMAPPFunctionWrapper(generatedWrapperFile, signatures)

@@ -138,6 +138,7 @@ extern "C" {
         uint64_t reSync;
         uint64_t badDecison;
         uint64_t lastParticipatedBarrier;
+        uint64_t lastBarrierSeenKey;
         uint64_t systemPageSize;
         
         void * stackBottom;
@@ -379,7 +380,7 @@ extern "C" {
         }
     }
     __thread bool gAccessedRemoteData;
-    __thread int  gDisableAnalysis = 0;
+    __thread bool gRemoteGetSeen = true;
     
 #define SKIP (10)
 #define PARTICIPATE (0)
@@ -807,6 +808,7 @@ asm volatile ( #name ":" )
         //assert(recvBuf == curBarrierInstance);
         // Exit
         gAccessedRemoteData = false;
+        gRemoteGetSeen = false;
     }
     
     
@@ -901,6 +903,7 @@ asm volatile ( #name ":" )
             
             // Exit
             gAccessedRemoteData = false;
+            gRemoteGetSeen = false;
             //assert(recvBuf == curBarrierInstance);
         }
     }
@@ -925,13 +928,19 @@ asm volatile ( #name ":" )
 #endif
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
         
-        if(ALL_REDUCE_GET_STATUS(recvBuf) == newVal && ! gDisableAnalysis) {
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == newVal) {
             GLOBAL_STATE.barrierSkipCache[key] = newVal;
         } else {
             GLOBAL_STATE.barrierSkipCache[key] = PARTICIPATE;
             Log(comm, key, "VetoInDecison:", curBarrierInstance, gAccessedRemoteData);
         }
-        
+
+        // if a get seen, force PARTICIPATE on the previous barrier
+        if (gRemoteGetSeen && GLOBAL_STATE.lastBarrierSeenKey) {
+            GLOBAL_STATE.barrierSkipCache[GLOBAL_STATE.lastBarrierSeenKey] = PARTICIPATE;
+            gRemoteGetSeen = false;
+        }
+
         // reset gAccessedRemoteData to false since we just did a barrier.
         gAccessedRemoteData = false;
     }
@@ -960,9 +969,15 @@ asm volatile ( #name ":" )
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
         GLOBAL_STATE.barrierSkipCache[key] = ALL_REDUCE_GET_STATUS(recvBuf);
         
-        if(ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE && ! gDisableAnalysis) {
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE) {
             gAccessedRemoteData = false;
             Log(comm, key, "VetoOnFirstRound:", curBarrierInstance, gAccessedRemoteData);
+        }
+
+        // if a get seen, force PARTICIPATE on the previous barrier
+        if (gRemoteGetSeen && GLOBAL_STATE.lastBarrierSeenKey) {
+            GLOBAL_STATE.barrierSkipCache[GLOBAL_STATE.lastBarrierSeenKey] = PARTICIPATE;
+            gRemoteGetSeen = false;
         }
     }
     
@@ -1103,7 +1118,7 @@ asm volatile ( #name ":" )
         
         RedundancyKey rKey = {/* last barrier = */ 0, /*cur barrier =*/ key};
         
-        if(ALL_REDUCE_GET_STATUS(recvBuf) == POTENTIAL_SKIP /* TODO... do we need this ?&& ! gDisableAnalysis */) {
+        if(ALL_REDUCE_GET_STATUS(recvBuf) == POTENTIAL_SKIP) {
             // if it is not in participate map, record in redundancy map.
             if (participatedBarriersMap.find(key) == participatedBarriersMap.end())
                 RecordInRedundancyMap(rKey);
@@ -1226,7 +1241,8 @@ asm volatile ( #name ":" )
         } else {
             HandleFirstVisit(comm, key, curBarrierInstance, retVal);
         }
-        
+
+        GLOBAL_STATE.lastBarrierSeenKey = key;
         return retVal;
     }
     
