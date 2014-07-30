@@ -73,6 +73,9 @@ assert( 0 && "unsupported platform");
 
 //#define DOWORK
 //#define VALIDATE
+/* for performance measurement on small number of levels, disable try release */
+/* for correctness checks enable try release */
+//#define TRY_RELEASE
 #define CHECK_THREAD_AFFINITY
 
 #ifdef VALIDATE
@@ -141,3 +144,4 @@ void PrintAffinity(int tid){
 }
 
 #endif
+
