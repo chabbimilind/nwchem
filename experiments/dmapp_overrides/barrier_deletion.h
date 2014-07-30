@@ -13,7 +13,7 @@
 
 extern "C" {
     extern __thread bool gAccessedRemoteData;
-    extern __thread int  gDisableAnalysis;
+    extern __thread bool gRemoteGetSeen;
     extern void enable_barrier_optimization_();
     extern void disable_barrier_optimization_();
     extern void disable_and_cleanup_barrier_optimization_();
