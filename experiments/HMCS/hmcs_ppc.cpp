@@ -68,6 +68,170 @@ inline int GetThresholdAtLevel(int level){
     return thresholdAtLevel[level];
 }
 
+
+typedef bool (*ReleaseFP)(HMCS * L, QNode *I);
+static ReleaseFP ReleaseLockReal __attribute__((aligned(CACHE_LINE_SIZE)));
+
+static void Acquire(HMCS * L, QNode *I);
+static inline void AcquireParent(HMCS * L) {
+    Acquire(L->parent, &(L->node));
+}
+
+#define ACQUIRE_NEXT_LEVEL_MCS_LOCK(L) do{I=&(L->node); L=L->parent; goto START;} while(0)
+
+static inline void Acquire(HMCS * L, QNode *I) {
+START:
+    // Prepare the node for use.
+    I->Reuse();
+    QNode * pred = (QNode *) SWAP(&(L->lock), I);
+    if(!pred) {
+        // I am the first one at this level
+        // begining of cohort
+        I->status = COHORT_START;
+        // Acquire at next level if not at the top level
+        if(!(L->IsTopLevel())) {
+            // This means this level is acquired and we can start the next level
+            ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
+        }
+    } else {
+        pred->next = I;
+        for(;;){
+            uint64_t myStatus = I->status;
+            if(myStatus < ACQUIRE_PARENT) {
+                break;
+            }
+            if(myStatus == ACQUIRE_PARENT) {
+                // beginning of cohort
+                I->status = COHORT_START;
+                // This means this level is acquired and we can start the next level
+                ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
+                break;
+            }
+            // spin back; (I->status == WAIT)
+        }
+    }
+}
+
+#define AcquireWraper(L, I) do {\
+    Acquire(L, I);\
+    FORCE_INS_ORDERING(); }while(0)
+
+inline static void NormalMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
+    
+    QNode * succ = I->next;
+    if(succ) {
+        succ->status = val;
+    } else {
+        if (BOOL_CAS(&(L->lock), I, NULL))
+            return;
+        while( (succ=I->next) == NULL);
+        succ->status = val;
+    }
+}
+
+inline static  bool TryMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
+    QNode * succ = I->next;
+    if(succ) {
+        succ->status = val;
+        return true;
+    } else {
+        // found no successor so, did not release
+        return false;
+    }
+}
+
+
+
+
+template<int level>
+struct LockRelease {
+    inline static bool Release(HMCS * L, QNode *I
+#ifdef TRY_RELEASE
+, bool tryRelease=false
+#endif
+) {
+
+        uint64_t curCount = I->status;
+        QNode * succ;
+        
+        // Lower level releases
+        if(curCount == L->GetThreshold()) {
+#ifdef TRY_RELEASE
+            succ  = I->next;
+            // if I have successors, we'll try release
+            if( tryRelease || succ) {
+                bool releaseVal = LockRelease<level - 1>::Release(L->parent, &(L->node), true /* try release */);
+                if(releaseVal){
+                    COMMIT_ALL_WRITES();
+                    // Tap successor at this level and ask to spin acquire next level lock
+                    NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+                    return true; // released
+                }
+                // retaining lock
+                // if tryRelease == true, pass it to descendents
+                if (tryRelease) {
+                    return false; // not released
+                }
+                // pass it to peers
+                // Tap successor at this level
+                succ->status=  COHORT_START; /* give one full chunk */
+                return true; //released
+            }
+#endif            
+            // NO KNOWN SUCCESSORS / DESCENDENTS
+            // reached threshold and have next level
+            // release to next level
+            LockRelease<level - 1>::Release(L->parent, &(L->node));
+            COMMIT_ALL_WRITES();
+            // Tap successor at this level and ask to spin acquire next level lock
+            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+            return true; // Released
+        }
+        
+        succ = I->next;
+        // Not reached threshold
+        if(succ) {
+            succ->status = curCount + 1;
+            return true; // Released
+        } else {
+            // No known successor, so release
+            LockRelease<level - 1>::Release(L->parent, &(L->node));
+            COMMIT_ALL_WRITES();
+            // Tap successor at this level and ask to spin acquire next level lock
+            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
+            return true; // Released
+        }
+    }
+    
+};
+
+template <>
+struct LockRelease<1> {
+    inline static bool Release(HMCS * L, QNode *I
+#ifdef TRY_RELEASE
+, bool tryRelease=false
+#endif
+) {
+        // Top level release is usual MCS
+        // At the top level MCS we always writr COHORT_START since
+        // 1. It will release the lock
+        // 2. Will never grow large
+        // 3. Avoids a read from I->status
+#ifdef TRY_RELEASE
+        if(tryRelease) {
+            bool retVal = TryMCSReleaseWithValue(L, I, COHORT_START);
+            return retVal;
+        }
+#endif
+        NormalMCSReleaseWithValue(L, I, COHORT_START);
+        return true;
+    }
+};
+
+#define ReleaseWrapper(L, I, level) do{\
+    COMMIT_ALL_WRITES();\
+    LockRelease<level>::Release(L, I); }while(0)
+
 /*
  
  8 cores per CPU
@@ -83,6 +247,40 @@ HMCS ** lockLocations __attribute__((aligned(CACHE_LINE_SIZE)));
 
 HMCS * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
     // Total locks needed = participantsPerLevel[1] + participantsPerLevel[2] + .. participantsPerLevel[levels-1] + 1
+    
+    
+#pragma omp single
+    {
+        switch (levels) {
+            case 1:
+                ReleaseLockReal = LockRelease<1>::Release;
+                break;
+            case 2:
+                ReleaseLockReal = LockRelease<2>::Release;
+                break;
+            case 3:
+                ReleaseLockReal = LockRelease<3>::Release;
+                break;
+            case 4:
+                ReleaseLockReal = LockRelease<4>::Release;
+                break;
+            case 5:
+                ReleaseLockReal = LockRelease<5>::Release;
+                break;
+            case 6:
+                ReleaseLockReal = LockRelease<6>::Release;
+                break;
+            case 7:
+                ReleaseLockReal = LockRelease<7>::Release;
+                break;
+            case 8:
+                ReleaseLockReal = LockRelease<8>::Release;
+                break;
+            default:
+                assert(0 && "Release > 8 NYI");
+                break;
+        }
+    }
     
     int totalLocksNeeded = 0;
     for (int i=0; i < levels; i++) {
@@ -131,192 +329,33 @@ HMCS * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
     
 }
 
-static void Acquire(HMCS * L, QNode *I);
-static inline void AcquireParent(HMCS * L) {
-    Acquire(L->parent, &(L->node));
-}
-
-static inline void Acquire(HMCS * L, QNode *I) {
-#define ACQUIRE_NEXT_LEVEL_MCS_LOCK(L) do{I=&(L->node); L=L->parent; goto START;} while(0)
-
-START:
-    // Prepare the node for use.
-    I->Reuse();
-    QNode * pred = (QNode *) SWAP(&(L->lock), I);
-    if(!pred) {
-        // I am the first one at this level
-        // begining of cohort
-        I->status = COHORT_START;
-        // Acquire at next level if not at the top level
-        if(!(L->IsTopLevel())) {
-            // This means this level is acquired and we can start the next level
-            ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
-        }
-    } else {
-        pred->next = I;
-        for(;;){
-            uint64_t myStatus = I->status;
-            if(myStatus < ACQUIRE_PARENT) {
-                break;
-            }
-            if(myStatus == ACQUIRE_PARENT) {
-                // beginning of cohort
-                I->status = COHORT_START;
-                // This means this level is acquired and we can start the next level
-                ACQUIRE_NEXT_LEVEL_MCS_LOCK(L);
-                break;
-            }
-            // spin back; (I->status == WAIT)
-        }
-    }
-#undef ACQUIRE_NEXT_LEVEL_MCS_LOCK
-}
-
-static inline void AcquireWraper(HMCS * L, QNode *I) {
-    Acquire(L, I);
-    FORCE_INS_ORDERING();
-}
-
-inline static void NormalMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
-    QNode * succ = I->next;
-    if(succ) {
-        succ->status = val;
-    } else {
-        if (BOOL_CAS(&(L->lock), I, NULL))
-            return;
-        while( (succ=I->next) == NULL);
-        succ->status = val;
-    }
-}
-
-inline static  bool TryMCSReleaseWithValue(HMCS * L, QNode *I, uint64_t val){
-    QNode * succ = I->next;
-    if(succ) {
-        succ->status = val;
-        return true;
-    } else {
-        // found no successor so, did not release
-        return false;
-    }
-}
-
-
-
-
-template<int level>
-struct LockRelease {
-    inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
-        uint64_t curCount = I->status;
-        QNode * succ;
-        
-        // Lower level releases
-        if(curCount == L->GetThreshold()) {
-            succ  = I->next;
-            // if I have successors, we'll try release
-            if( tryRelease || succ) {
-                bool releaseVal = LockRelease<level - 1>::Release(L->parent, &(L->node), true /* try release */);
-                if(releaseVal){
-                    COMMIT_ALL_WRITES();
-                    // Tap successor at this level and ask to spin acquire next level lock
-                    NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-                    return true; // released
-                }
-                // retaining lock
-                // if tryRelease == true, pass it to descendents
-                if (tryRelease) {
-                    return false; // not released
-                }
-                // pass it to peers
-                // Tap successor at this level
-                succ->status=  COHORT_START; /* give one full chunk */
-                return true; //released
-            }
-            
-            // NO KNOWN SUCCESSORS / DESCENDENTS
-            // reached threshold and have next level
-            // release to next level
-            LockRelease<level - 1>::Release(L->parent, &(L->node));
-            COMMIT_ALL_WRITES();
-            // Tap successor at this level and ask to spin acquire next level lock
-            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-            return true; // Released
-        }
-        
-        succ = I->next;
-        // Not reached threshold
-        if(succ) {
-            succ->status = curCount + 1;
-            return true; // Released
-        } else {
-            // No known successor, so release
-            LockRelease<level - 1>::Release(L->parent, &(L->node));
-            COMMIT_ALL_WRITES();
-            // Tap successor at this level and ask to spin acquire next level lock
-            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-            return true; // Released
-        }
-    }
-    
-};
-
-template <>
-struct LockRelease<1> {
-    inline static bool Release(HMCS * L, QNode *I, bool tryRelease=false) {
-        // Top level release is usual MCS
-        // At the top level MCS we always writr COHORT_START since
-        // 1. It will release the lock
-        // 2. Will never grow large
-        // 3. Avoids a read from I->status
-        if(tryRelease) {
-            bool retVal = TryMCSReleaseWithValue(L, I, COHORT_START);
-            return retVal;
-        }
-        NormalMCSReleaseWithValue(L, I, COHORT_START);
-        return true;
-    }
-};
-
-inline static bool ReleaseWrapper(HMCS * L, QNode *I, int level) {
-    COMMIT_ALL_WRITES();
-    switch (level) {
-        case 1:
-            LockRelease<1>::Release(L, I);
-            break;
-        case 2:
-            LockRelease<2>::Release(L, I);
-            break;
-        case 3:
-            LockRelease<3>::Release(L, I);
-            break;
-        case 4:
-            LockRelease<4>::Release(L, I);
-            break;
-        case 5:
-            LockRelease<5>::Release(L, I);
-            break;
-        case 6:
-            LockRelease<6>::Release(L, I);
-            break;
-        case 7:
-            LockRelease<7>::Release(L, I);
-            break;
-        case 8:
-            LockRelease<8>::Release(L, I);
-            break;
-        default:
-            assert(0 && "Release > 8 NYI");
-            break;
-    }
-}
 
 void AlarmHandler(int sig) {
     printf("\n Time out!\n");
     exit(-1);
 }
 
+
+static inline void CriticalSection(){
+#ifdef  DOWORK
+    DoWorkInsideCS();
+#endif
+    
+#ifdef VALIDATE
+    int lvar = var;
+    var ++;
+    assert(var == lvar + 1);
+#endif
+}
+static inline void OutsideCriticalSection(){
+#ifdef  DOWORK
+    DoWorkOutsideCS();
+#endif
+}
+
 int main(int argc, char *argv[]){
     
-    int totalIters = atoi(argv[1]);
+    uint64_t totalIters = atol(argv[1]);
     int numThreads = atoi(argv[2]);
     int levels = atoi(argv[3]);
     int * participantsAtLevel = (int * ) malloc(levels);
@@ -327,7 +366,7 @@ int main(int argc, char *argv[]){
     }
     
     omp_set_num_threads(numThreads);
-    int numIter = totalIters / numThreads;
+    uint64_t numIter = totalIters / numThreads;
     struct timeval start;
     struct timeval end;
     uint64_t elapsed;
@@ -350,35 +389,82 @@ int main(int argc, char *argv[]){
             gettimeofday(&start, 0);
         
         QNode me;
-        for(int i = 0; i < numIter; i++) {
-            //me.Reuse();
-            AcquireWraper(hmcs, &me);
-            
-#ifdef  DOWORK
-            DoWorkInsideCS();
-#endif
-            
-#ifdef VALIDATE
-            int lvar = var;
-            var ++;
-            assert(var == lvar + 1);
-#endif
-            ReleaseWrapper(hmcs, &me, levels);
-            
-#ifdef  DOWORK
-            DoWorkOutsideCS();
-#endif
-            
+        
+        switch (levels) {
+            case 1:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 1);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 2:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 2);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 3:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 3);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 4:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 4);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 5:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 5);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 6:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 6);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 7:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 7);
+                    OutsideCriticalSection();
+                }
+                break;
+            case 8:
+                for(uint64_t i = 0; i < numIter; i++) {
+                    AcquireWraper(hmcs, &me);
+                    CriticalSection();
+                    ReleaseWrapper(hmcs, &me, 8);
+                    OutsideCriticalSection();
+                }
+                break;
+            default:
+                assert(0 && "ReleaseWrapper > 8 NYI" );
+                break;
         }
+        
     }
     gettimeofday(&end, 0);
     elapsed = TIME_SPENT(start, end);
     double throughPut = (numIter * numThreads) * 1000000.0 / elapsed;
-    std::cout<<"\n Throughput = " << throughPut;
+    std::cout<<"\n Throughput = " << throughPut << "\n";
     return 0;
 }
-
-
-
-
 
