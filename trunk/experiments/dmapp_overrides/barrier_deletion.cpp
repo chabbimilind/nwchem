@@ -1143,6 +1143,7 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator = GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.find(key);
         // found
         if(GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator != GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.end()) {
+            GLOBAL_STATE.IncrementSkippable();
             // Skip this barrier
             return  MPI_SUCCESS;
         } else {
@@ -1413,7 +1414,7 @@ asm volatile ( #name ":" )
         MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
         
         //HACK HACK ... delete me
-        // enable_barrier_optimization_();
+        //enable_barrier_optimization_();
         
         
         // Get time after statring MPI
@@ -1421,11 +1422,12 @@ asm volatile ( #name ":" )
             gettimeofday(&mpiInitTime, NULL);
         }
         
-        ReadEnvironemtalVariables();
-        
 #ifdef GUIDED_OPTIMIZATION
         InitializeGuidedOptimization();
 #endif
+
+        ReadEnvironemtalVariables();
+        
         
         
 #ifdef ENABLE_LOGGING
