@@ -45,7 +45,7 @@ void SegvHandler (int num)  {
 uint64_t DoExperiment() {
     
     // Circulate data
-	for(int i = 1; i < mpiCommSize; i++){
+    for(int i = 1; i < mpiCommSize; i++){
         
         // Process me reads from process me + 1 in round 1.
         // Process me writes to process me - 1
