@@ -49,7 +49,7 @@ uint64_t DoExperiment() {
         
         // Process me reads from process me + 1 in round 1.
         // Process me writes to process me - 1
-
+        
         // In round i it will get data from process (myRank + 2*i-1)
         
         int to = myRank == 0 ? mpiCommSize -1 : (myRank - 1) ;
