@@ -38,8 +38,8 @@ int  mpiCommSize;
 #define ALLOC_SIZE ((1<<20))
 
 void SegvHandler (int num)  {
-	//printf ("memory accessed!\n");
-	mprotect (mySharedPtr, ALLOC_SIZE, PROT_READ | PROT_WRITE);
+    //printf ("memory accessed!\n");
+    mprotect (mySharedPtr, ALLOC_SIZE, PROT_READ | PROT_WRITE);
 }
 
 uint64_t DoExperiment() {
@@ -99,25 +99,25 @@ uint64_t DoExperiment() {
 }
 
 int main(int argc, char ** argv){
-	MPI_Init(&argc, &argv);
-	MPI_Comm_rank(MPI_COMM_WORLD, &myRank);	/* get current process id */
-	MPI_Comm_size(MPI_COMM_WORLD, &mpiCommSize);	/* get number of processes */
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);    /* get current process id */
+    MPI_Comm_size(MPI_COMM_WORLD, &mpiCommSize);    /* get number of processes */
     
     
     assert(mpiCommSize <= (256) && "Test written only for a max of 256 myRanks");
     
-	dmapp_rma_attrs_t actual_args;
-	dmapp_init(NULL, &actual_args);
+    dmapp_rma_attrs_t actual_args;
+    dmapp_init(NULL, &actual_args);
     
-	// signal handler
-	struct sigaction sa;
+    // signal handler
+    struct sigaction sa;
     
-	/* Install SegvHandler as the handler for SIGSEGV. */
-	memset (&sa, 0, sizeof (sa));
-	sa.sa_handler = &SegvHandler;
-	sigaction (SIGSEGV, &sa, NULL);
+    /* Install SegvHandler as the handler for SIGSEGV. */
+    memset (&sa, 0, sizeof (sa));
+    sa.sa_handler = &SegvHandler;
+    sigaction (SIGSEGV, &sa, NULL);
     
-	// allocate and register mem
+    // allocate and register mem
     sharedSegments = (dmapp_seg_desc_t *) calloc(sizeof(dmapp_seg_desc_t), mpiCommSize);
     sharedPointers = (void **) calloc(sizeof(void*), mpiCommSize);
     
@@ -135,12 +135,12 @@ int main(int argc, char ** argv){
     // Init tmpData with 0
     rc = posix_memalign((void**) (&tmpData), getpagesize(), ALLOC_SIZE);
     assert(0 == rc);
-	memset(tmpData, 0, ALLOC_SIZE);
+    memset(tmpData, 0, ALLOC_SIZE);
     
     
-	// Share the region with all processes:
-	MPI_Allgather(&my_sharedSegments, sizeof(dmapp_seg_desc_t), MPI_BYTE, sharedSegments , sizeof(dmapp_seg_desc_t), MPI_BYTE, MPI_COMM_WORLD);
-	MPI_Allgather(&mySharedPtr, sizeof(void   *), MPI_BYTE, sharedPointers , sizeof(void   *), MPI_BYTE, MPI_COMM_WORLD);
+    // Share the region with all processes:
+    MPI_Allgather(&my_sharedSegments, sizeof(dmapp_seg_desc_t), MPI_BYTE, sharedSegments , sizeof(dmapp_seg_desc_t), MPI_BYTE, MPI_COMM_WORLD);
+    MPI_Allgather(&mySharedPtr, sizeof(void   *), MPI_BYTE, sharedPointers , sizeof(void   *), MPI_BYTE, MPI_COMM_WORLD);
     
     
     for(int k = 0 ; k < mpiCommSize; k++) {
@@ -177,11 +177,11 @@ int main(int argc, char ** argv){
     if(myRank == 0)
         printf(" Done\n");
     
-	dmapp_finalize();
-	MPI_Finalize();
+    dmapp_finalize();
+    MPI_Finalize();
     
     
-	return 0;
+    return 0;
     
 }
 
