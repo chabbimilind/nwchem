@@ -106,6 +106,7 @@ extern "C" {
     //#define ENABLE_REPLAY
     
 //#define GUIDED_OPTIMIZATION
+#define EMPTY_KEY (0)
     
     /******** Globals variables **********/
     
@@ -127,8 +128,10 @@ extern "C" {
         dense_hash_map<uint64_t, uint64_t>::iterator barrierSkipCacheIterator;
         
 #ifdef GUIDED_OPTIMIZATION
-        unordered_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
-        unordered_set<uint64_t>::iterator  guidedOptimizationSkipCtxtHashSetIterator;
+        //unordered_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
+        //unordered_set<uint64_t>::iterator  guidedOptimizationSkipCtxtHashSetIterator;
+        dense_hash_set<uint64_t>  guidedOptimizationSkipCtxtHashSet;
+        dense_hash_set<uint64_t>::const_iterator  guidedOptimizationSkipCtxtHashSetIterator;
         map<void *, size_t> sharedDataRange;
 #endif
         
@@ -776,9 +779,12 @@ asm volatile ( #name ":" )
     
     static inline void ParticipateInBarrier(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int& retVal) {
         Log(comm, key, "Participating:", curBarrierInstance, gAccessedRemoteData);
-        // Force a dmapp sync here
-        dmapp_return_t t = dmapp_gsync_wait();
-        assert(t == DMAPP_RC_SUCCESS);
+        // If we had any outstanding remote ops, let's force a dmapp sync
+        if(gAccessedRemoteData) {
+            // Force a dmapp sync here
+            dmapp_return_t t = dmapp_gsync_wait();
+            assert(t == DMAPP_RC_SUCCESS);
+        }
         // We have already decided to participate for this barrier
         GLOBAL_STATE.SetLastParticipatedBarrier(key);
         
@@ -1024,6 +1030,7 @@ asm volatile ( #name ":" )
     
     // fortran interface
     void disable_barrier_optimization_() {
+        // HACK HACK delete me
         DisableBarrierOptimization();
     }
     
@@ -1383,7 +1390,7 @@ asm volatile ( #name ":" )
     
     static inline void InitializeGuidedOptimization(){
         // make sure dense_hash_map is initialized with empty key
-        //GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(0);
+        GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.set_empty_key(EMPTY_KEY);
         
 #if 0
         // Disable page protection
@@ -1417,10 +1424,6 @@ asm volatile ( #name ":" )
         //enable_barrier_optimization_();
         
         
-        // Get time after statring MPI
-        if(myRank == 0) {
-            gettimeofday(&mpiInitTime, NULL);
-        }
         
 #ifdef GUIDED_OPTIMIZATION
         InitializeGuidedOptimization();
@@ -1442,9 +1445,13 @@ asm volatile ( #name ":" )
 #endif
         atexit(CloseLogFile);
 #endif
+        // Let all procs do a MPI_Barrier, before start the timer
+        REAL_FUNCTION(MPI_Barrier)(MPI_COMM_WORLD);
         
-        
-        
+        // Get time after statring MPI
+        if(myRank == 0) {
+            gettimeofday(&mpiInitTime, NULL);
+        }
     }
     
     int WRAPPED_FUNCTION(MPI_Init)(int* argc, char** *argv) {
