@@ -385,8 +385,9 @@ extern "C" {
     __thread bool gAccessedRemoteData;
     __thread bool gRemoteGetSeen = true;
     
-#define SKIP (10)
 #define PARTICIPATE (0)
+#define SKIP (10)
+#define CONSENSUS_BROKEN (SKIP +1)
     
 #define USE_LIBUNWIND
     //#define USE_CUSTOM_UNWINDER
@@ -877,13 +878,13 @@ asm volatile ( #name ":" )
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
             uint64_t recvBuf[2];
             uint64_t sendBuf[2];
-            uint64_t sendStatus = PARTICIPATE;
+            uint64_t sendStatus = CONSENSUS_BROKEN;
             ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
             retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
             assert((ALL_REDUCE_GET_CONTEXT(recvBuf)  == key) && "Context mismatch");
 #else
             uint64_t recvBuf;
-            uint64_t sendBuf = PARTICIPATE;
+            uint64_t sendBuf = CONSENSUS_BROKEN;
             sendBuf = ALL_REDUCE_BUFFER(sendBuf);
             retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
 #endif
@@ -894,7 +895,7 @@ asm volatile ( #name ":" )
             
             assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
             
-            if(ALL_REDUCE_GET_STATUS(recvBuf) != PARTICIPATE) {
+            if(ALL_REDUCE_GET_STATUS(recvBuf) != CONSENSUS_BROKEN) {
                 // This is the worst place to be in. We can't handle this as yet.
                 if(myRank == 0) {
                     printf("\n Bad decision at") ;
