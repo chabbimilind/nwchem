@@ -12,10 +12,15 @@
 #include<dmapp.h>
 
 extern "C" {
-    extern __thread bool gAccessedRemoteData;
+    extern __thread uint8_t gSharedDataAccessStatus;
     extern __thread bool gRemoteGetSeen;
     extern void enable_barrier_optimization_();
     extern void disable_barrier_optimization_();
     extern void disable_and_cleanup_barrier_optimization_();
     extern void UnprotectAllPages();
+    
+#define SHARED_DATA_ACCESSED_REMOTE (1 << 0)
+#define SHARED_DATA_ACCESSED_LOCAL  (1 << 1)
+#define SET_SHARED_DATA_ACCESS_STATE(state) do {( gSharedDataAccessStatus |= (state)); } while(0)
+#define CLEAR_SHARED_DATA_ACCESS_STATE(state) do {( gSharedDataAccessStatus &= ~(state)); } while(0)
 }

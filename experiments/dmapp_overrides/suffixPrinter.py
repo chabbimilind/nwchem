@@ -3,21 +3,54 @@ import subprocess
 import sys
 import shlex, subprocess
 from subprocess import call
-from sets import Set
+#from sets import Set
 import threading
 import time
 import signal
 from threading import Timer
 
 
-SkippableSet = Set()
-SkippableDict = Set()
-ParticipateSet = Set()
+SkippableSet = set()
+SkippableDict = set()
+ParticipateSet = set()
 SkippableTable = {}
 totalSkippable = 0
 
+
+NWCHEM_ROOT = ''
+skipInitial = 0
+skipAfter = sys.maxsize
+maxRuns = 2
+timeOutVal = 70
+#expectedString = 'Total Barriers = 84269, Enabled = 84269, Skippable'
+expectedString = 'Total Barriers = 77401, Enabled = 77401, Skippable ='
+#cmd = ['aprun', '-N', '8', '-n', '64', './nwchem_bd', 'ip/tce_ccsd2_t_cl2o_new.nw']
+cmd = ['aprun', '-t', str(timeOutVal), '-S', '4', '-n', '8', './nwchem_bd_L', 'ip/tce_ccsd2_t_cl2o.nw']
+addrLineCmd = ['addr2line', '-C', '-f', '-e', './nwchem_bd_L'] 
+whiteList = []
+blackList = []
+
+def ReadWhileAndBlackList():
+    with open('white_list.txt') as fp:
+        l = fp.readlines()
+        for i in l:
+        #skip comments
+            if i.startswith('#'):  continue
+            pieces  = i.split(':')
+            s1 = ' '.join([x.strip() for x in pieces[0].split()])
+            whiteList.append(s1)
+    with open('black_list.txt') as fp:
+        l = fp.readlines()
+        for i in l:
+            #skip comments
+            if i.startswith('#'):  continue
+            pieces  = i.split(':')
+            s1 = ' '.join([x.strip() for x in pieces[0].split()])
+            blackList.append(s1)
+			
+
 def GetSuffixesOfLength(S, suffixLen):
-	suffixSet = Set()
+	suffixSet = set()
 	for i in S:
 		ctxt = i.split()
 		if len(ctxt) < suffixLen: continue
@@ -26,7 +59,7 @@ def GetSuffixesOfLength(S, suffixLen):
 	return suffixSet
 
 def GetFullContextForGivenSuffixes(S, SkippableSuffix):
-	fullCtxtSet = Set()
+	fullCtxtSet = set()
 	for i in S:
 		for j in SkippableSuffix:
 			if i.startswith(j):
@@ -51,7 +84,7 @@ def OrderSuffixByFrequency(S, presentationSet, suffixFile, doPrint):
         for j in S:
             if j.startswith(i):
                 totalSkippable = totalSkippable + SkippableTable[j][0]
-                if suffixTable.has_key(i) : 
+                if i in suffixTable:
                     suffixTable[i] = suffixTable[i] + SkippableTable[j][0]
                 else: 
                     suffixTable[i] = SkippableTable[j][0]
@@ -63,10 +96,11 @@ def OrderSuffixByFrequency(S, presentationSet, suffixFile, doPrint):
         for w in sorted(suffixTable, key= suffixTable.get, reverse=True):
             fp.write('\n###################')
             fp.write('\n#' + w + ':' + str(suffixTable[w]) + ':' + str(suffixTable[w] * 100.0 / totalSkippable))
-            c1 = ['addr2line', '-C', '-f', '-e', '/global/homes/m/mc29/nwchem-6.3_opt/bin/LINUX64/nwchem_bd'] + w.split()
+            #c1 = ['addr2line', '-C', '-f', '-e', '/global/scratch2/sd/mc29/nwchem/guided_opt/nwchem_bd'] + w.split()
+            c1 = addrLineCmd  + w.split()
             p = subprocess.Popen(c1 , stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
-            fp.write('\n#' + out.replace('\n','\n#'))
+            fp.write('\n#' + out.decode("utf-8").replace('\n','\n#'))
         fp.close()
     return sorted(suffixTable, key= suffixTable.get, reverse=True)
 
@@ -87,13 +121,13 @@ def FindSuffixes(suffixFile, doPrint):
 # i = i + 1
 #}
 
-    assert SkippableSet & ParticipateSet != set(), " SkippableSet & ParticipateSet != set() "
+    assert SkippableSet & ParticipateSet == set(), " SkippableSet & ParticipateSet != set() "
 
     S = SkippableSet.copy()
     P = ParticipateSet.copy()
 
-    SkippableSuffix = Set()
-    PresentationSet = Set()
+    SkippableSuffix = set()
+    PresentationSet = set()
     i = 1
     while len(S) > 0:
         SkipCandidates = GetSuffixesOfLength(S, i)	
@@ -101,7 +135,7 @@ def FindSuffixes(suffixFile, doPrint):
         SkippableSuffix = SkipCandidates - ParticipateCandidates
         PresentationSet |= SkippableSuffix
         S -= GetFullContextForGivenSuffixes(S, SkippableSuffix) 
-        print 'S=', len(S)
+        print ('S=', len(S))
         i = i + 1
 
     return OrderSuffixByFrequency(SkippableSet, PresentationSet, suffixFile, doPrint)
@@ -116,7 +150,7 @@ def ReadInputFiles(skippableFile , participateFile):
 		pieces  = i.split(':')
 		s1 = ' '.join([x.strip() for x in pieces[5].split()])
 		SkippableSet.add(s1)
-		SkippableTable[s1] = (int(pieces[0].strip()), long(pieces[4].strip()))
+		SkippableTable[s1] = (int(pieces[0].strip()), int(pieces[4].strip()))
 
 # read participated barriers which has the following format "<num> : <percent> : <hash> : <barrier ctxt> "
 	l = open(participateFile).readlines()
@@ -138,91 +172,71 @@ def WriteFullCtxtHashForGivenSuffix(SkippableSet, SkippableSuffix):
 def ReadSuffixFile(suffixFile):
     l = open(suffixFile).readlines()
     SkippableSuffix = []
-    print 'You chose ' , len(SkippableSuffix) , 'suffixes'
-    print SkippableSuffix
+    print ('You chose ' , len(SkippableSuffix) , 'suffixes')
+    print (SkippableSuffix)
     cnt = 0
     for i in l:
         cnt = cnt + 1
         if i.startswith('#'):  continue
-        print i, cnt
-        print SkippableSuffix
+        print (i, cnt)
+        print (SkippableSuffix)
         pieces  = i.split(':')
         s1 = ' '.join([x.strip() for x in pieces[0].split()])
         SkippableSuffix.append(s1)
 
-        print 'You chose ' , len(SkippableSuffix) , 'suffixes'
-    print SkippableSuffix
+        print ('You chose ' , len(SkippableSuffix) , 'suffixes')
+    print (SkippableSuffix)
     WriteFullCtxtHashForGivenSuffix(SkippableSet, SkippableSuffix)
 
 
-
-class Monitor(threading.Thread):
-    def __init__(self, proc, maxTime):
-        threading.Thread.__init__(self)
-        self.proc = proc
-        self.maxTime = maxTime
-    def run(self):
-        cnt = 0
-        while self.proc.poll() == None:
-            time.sleep(10)
-            cnt = cnt + 10
-            if cnt > self.maxTime:
-                print "before kill"
-                #os.kill(self.proc.pid, signal.SIGTERM)
-                self.proc.terminate()
-                self.proc.kill()
-                print "after kill"
-                time.sleep(10)
-
-                break
-
-def kill_proc(proc):
-    print "Killing..."
-    proc.kill()
 
 
 def IsSafeSuffix():
     # copy ctxt_hashes.txt to its destination
     os.putenv("NWCHEM_GUIDED_OPTIMIZATION_MODE",  "optimize")
-    directory = '/global/homes/m/mc29/nwchem-6.3_opt/src/'
+    directory = '/global/scratch2/sd/mc29/nwchem/guided_opt/'
     #directory = '.'
-    ret = os.system('cp ctxt_hashes.txt ' + directory)
-    assert(ret == 0)
+    #ret = os.system('cp ctxt_hashes.txt ' + directory)
+    #assert(ret == 0)
     # run the test 10 times
-    maxRuns = 10
-    timeOutVal = 90
-    expectedString = 'Total Barriers = 77418, Enabled = 77418, Skippable'
-    cmd = ['aprun', '-N', '4', '-n', '32', '../bin/LINUX64/nwchem_bd', 'nwchem_inputs/tce_ccsd2_t_cl2o.nw']
+    #expectedString = 'Total Barriers = 77418, Enabled = 77418, Skippable'
     #cmd = ['aprun', '-n', '8', '../bin/LINUX64/nwchem_bd', 'nwchem_inputs/tce_ccsd2_t_cl2o.nw']
     #cmd = ['ls']
     for i in range(maxRuns):
+            proc = None
             try:
-                with open('output.txt', 'w') as fp:
-                    proc = subprocess.Popen(cmd, stdout=fp, stderr=subprocess.STDOUT, cwd=directory)
-                    # launch a side thread to monitor
-                    #thread1 = Monitor(proc, timeOutVal)
-                    #thread1.start()
-                    timer = Timer(90, kill_proc, [proc])
-                    timer.start()
-                    proc.wait()
-                    #(output, err) = proc.communicate()
-                    timer.cancel()
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory)
+                
+                try:
+                    #outs, errs = proc.communicate(timeout=timeOutVal)
+                    outs, errs = proc.communicate()
+                
                     if proc.returncode != 0:
-                        print "BAD ret code", proc.returncode
+                        print ("BAD ret code", proc.returncode)
                         return False
-                # parse output for the right number of barriers
                 
-                with open('output.txt') as fp:
-                    output = fp.read()
-                    strLoc = output.find(expectedString)
+                    # parse output for the right number of barriers
+                    outs = outs.decode("utf-8")
+                    strLoc = outs.find(expectedString)
                     if strLoc == -1:
-                        print 'str not found'
+                        print ('str not found')
                         return False
-                    print output[strLoc:strLoc+100]
-                
+
+                    print (outs[strLoc:strLoc+100])
+
+                except subprocess.TimeoutExpired:
+                    print ("Killing...")
+                    proc.terminate()
+                    proc.kill()
+                    print ("Killed")
+                    time.sleep(5)
+                    return False
+
+
+
             except subprocess.CalledProcessError:
                 (output, err) = proc.communicate()
-                print 'subprocess.CalledProcessError'
+                print ('subprocess.CalledProcessError')
                 return False
                     
     return True
@@ -232,22 +246,48 @@ def IsSafeSuffix():
 def AutomaticTesting():
     suffixes = FindSuffixes('', False)
     
+    ReadWhileAndBlackList();
+    #SuffixesToSkip = ['none'] #["2325a87e 22714a1b 22710b72 2263b0ec 225ff688"]
     with open('useful_suffixes.txt', 'w') as fp:
         #suffixes = ["2325926c 22714a1b 22711631 20610ff0"]
+        initial = 0
+        safeList = []
         for s in suffixes:
-            hashes = WriteFullCtxtHashForGivenSuffix(SkippableSet, [s])
-            c1 = ['addr2line', '-C', '-f', '-e', '/global/homes/m/mc29/nwchem-6.3_opt/bin/LINUX64/nwchem_bd'] + s.split()
+            #skip first skipInitial
+            initial = initial + 1
+            if initial < skipInitial: continue
+            if initial > skipAfter: continue
+            if s in blackList:
+                print ('Skipping:', s)
+                continue
+
+            if s in whiteList:
+                print ('not testing:', s)
+                safeList.append(s)
+                continue
+
+            hashes = WriteFullCtxtHashForGivenSuffix(SkippableSet, safeList + [s])
+            c1 = addrLineCmd + s.split()
             p = subprocess.Popen(c1 , stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
-            print  s, '\n#', out.replace('\n','\n#')
+            out = out.decode("utf-8")
+            print  (s + '\n#' + out.replace('\n','\n#') )
+            fp.write('#' + s + '\n#' + out.replace('\n','\n#') )
             if IsSafeSuffix():
                 # enlighten the user about this suffix
-                print 'SAFE SUFFIX: ', s, "total ctxts = ", len(hashes)
-                fp.write(s + '\n')
+                print ('SAFE SUFFIX: ', s, "total ctxts = ", len(hashes))
+                fp.write ('\n#SAFE SUFFIX: '+ s+ "total ctxts = "+ str(len(hashes)))
+                fp.write(' : ' + s + '\n')
+                safeList.append(s)
             else:
                 # enlighten the user about this suffix
-                print 'UNSAFE SUFFIX: ', s, "total ctxts = ", len(hashes)
-                fp.write('#UNSAFE' + s + '\n')
+                print ('UNSAFE SUFFIX: ', s, "total ctxts = ", len(hashes))
+                fp.write ('#UNSAFE SUFFIX: '+ s+ "total ctxts = "+ str(len(hashes)))
+                fp.write('\n#UNSAFE:' + s + '\n')
+            #flush io
+            fp.flush()
+            os.fsync(fp)
+
 
 
 
@@ -261,6 +301,10 @@ elif sys.argv[1] == 'convertSuffixToFullCtxt' :
 	FindSuffixes('', False)
 	ReadSuffixFile('suffixFile.txt')
 elif sys.argv[1] == 'fullyAutomatic' :
+    if len(sys.argv) >= 3:
+        skipInitial = int(sys.argv[2])
+    if len(sys.argv) >= 4:
+        skipAfter = int(sys.argv[3])
     AutomaticTesting()
 
 
