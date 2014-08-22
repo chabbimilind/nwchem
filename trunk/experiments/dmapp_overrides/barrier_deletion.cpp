@@ -338,6 +338,33 @@ extern "C" {
     
     
     
+    /* Accessor functions for local and remote touch of data */
+    // fortran interface
+    void set_accessed_local_shared_data_() {
+        SET_SHARED_DATA_ACCESS_STATE(SHARED_DATA_ACCESSED_LOCAL);
+    }
+    
+    // fortran interface
+    void set_accessed_remote_shared_data_() {
+        SET_SHARED_DATA_ACCESS_STATE(SHARED_DATA_ACCESSED_REMOTE);
+    }
+    
+    static inline bool IsRemoteSharedDataAccessed(){
+        return (gSharedDataAccessStatus & SHARED_DATA_ACCESSED_REMOTE)  > 0 ? true : false;
+    }
+    
+    static inline bool IsLocalSharedDataAccessed(){
+        return gSharedDataAccessStatus & SHARED_DATA_ACCESSED_LOCAL;
+    }
+    
+    static inline bool IsSharedDataAccessed(){
+        return (gSharedDataAccessStatus & (SHARED_DATA_ACCESSED_LOCAL | SHARED_DATA_ACCESSED_REMOTE) ) > 0 ? true : false;
+    }
+    static inline bool ResetSharedDataAccesseStatus(){
+        gSharedDataAccessStatus = 0;
+    }
+
+    
     
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
     static void MyMPIReductionOp(void* a, void* b, int* len, MPI_Datatype* type) {
@@ -382,8 +409,11 @@ extern "C" {
             printf("\n Total Barriers = %lu, Enabled = %lu, Skippable =%lu, reSync = %lu, bad decision = %lu", GLOBAL_STATE.GetBarrierInstance(), GLOBAL_STATE.GetEnabledBarrierInstance(), GLOBAL_STATE.GetSkippable(), GLOBAL_STATE.GetReSync(), GLOBAL_STATE.GetBadDecision());
         }
     }
-    __thread bool gAccessedRemoteData;
+    __thread uint8_t gSharedDataAccessStatus;
     __thread bool gRemoteGetSeen = true;
+    
+    
+    
     
 #define PARTICIPATE (0)
 #define SKIP (10)
@@ -779,13 +809,16 @@ asm volatile ( #name ":" )
     extern int REAL_FUNCTION(MPI_Finalize)(void);
     
     static inline void ParticipateInBarrier(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int& retVal) {
-        Log(comm, key, "Participating:", curBarrierInstance, gAccessedRemoteData);
+        Log(comm, key, "Participating:", curBarrierInstance, IsSharedDataAccessed());
+        // TODO.. We don't need dmapp_gsync_wait in pratice. Hence commenting out.
+#if 0
         // If we had any outstanding remote ops, let's force a dmapp sync
-        if(gAccessedRemoteData) {
+        if(IsSharedDataAccessed()) {
             // Force a dmapp sync here
             dmapp_return_t t = dmapp_gsync_wait();
             assert(t == DMAPP_RC_SUCCESS);
         }
+#endif
         // We have already decided to participate for this barrier
         GLOBAL_STATE.SetLastParticipatedBarrier(key);
         
@@ -814,16 +847,16 @@ asm volatile ( #name ":" )
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
         //assert(recvBuf == curBarrierInstance);
         // Exit
-        gAccessedRemoteData = false;
+        ResetSharedDataAccesseStatus();
         gRemoteGetSeen = false;
     }
     
     
     static inline void SkipTheBarrier(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int& retVal) {
         // We had decided to skip this barrier
-        if(!gAccessedRemoteData) {
+        if(!IsSharedDataAccessed()) {
             // The decision still holds good.
-            Log(comm, key, "Skipping:", curBarrierInstance, gAccessedRemoteData);
+            Log(comm, key, "Skipping:", curBarrierInstance, IsSharedDataAccessed());
             GLOBAL_STATE.IncrementSkippable();
 #ifdef GUIDED_OPTIMIZATION
             RecordKeyInRedundancyMap(key);
@@ -872,7 +905,7 @@ asm volatile ( #name ":" )
             
 #endif
         } else {
-            Log(comm, key, "Breaking:", curBarrierInstance, gAccessedRemoteData);
+            Log(comm, key, "Breaking:", curBarrierInstance, IsSharedDataAccessed());
             // I am breaking my consensus... so what if all are breaking we are still fine.
             
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
@@ -909,27 +942,27 @@ asm volatile ( #name ":" )
             }
             
             // Exit
-            gAccessedRemoteData = false;
+            ResetSharedDataAccesseStatus();
             gRemoteGetSeen = false;
             //assert(recvBuf == curBarrierInstance);
         }
     }
     
     static inline void ContinueDecisionProcess(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, uint64_t val, int& retVal) {
-        Log(comm, key, "Deciding:", curBarrierInstance, gAccessedRemoteData);
+        Log(comm, key, "Deciding:", curBarrierInstance, IsSharedDataAccessed());
         // in decison process ... do all reduce
         
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
         uint64_t recvBuf[2], sendBuf[2];
         uint64_t newVal = val + 1;
-        uint64_t sendStatus = gAccessedRemoteData ? PARTICIPATE : newVal;
+        uint64_t sendStatus = IsSharedDataAccessed() ? PARTICIPATE : newVal;
         ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
         retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
 #else
         uint64_t recvBuf;
         uint64_t newVal = val + 1;
-        uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : newVal;
+        uint64_t sendBuf = IsSharedDataAccessed() ? PARTICIPATE : newVal;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
 #endif
@@ -939,7 +972,7 @@ asm volatile ( #name ":" )
             GLOBAL_STATE.barrierSkipCache[key] = newVal;
         } else {
             GLOBAL_STATE.barrierSkipCache[key] = PARTICIPATE;
-            Log(comm, key, "VetoInDecison:", curBarrierInstance, gAccessedRemoteData);
+            Log(comm, key, "VetoInDecison:", curBarrierInstance, IsSharedDataAccessed());
         }
 
         // if a get seen, force PARTICIPATE on the previous barrier
@@ -949,23 +982,23 @@ asm volatile ( #name ":" )
         }
 
         // reset gAccessedRemoteData to false since we just did a barrier.
-        gAccessedRemoteData = false;
+        ResetSharedDataAccesseStatus();
     }
     
     
     static inline void HandleFirstVisit(MPI_Comm comm, uint64_t key, uint64_t curBarrierInstance, int& retVal) {
-        Log(comm, key, "Firsttime:", curBarrierInstance, gAccessedRemoteData);
+        Log(comm, key, "Firsttime:", curBarrierInstance, IsSharedDataAccessed());
         // first visit ... do all reduce
 #ifdef USE_CONTEXT_IN_MPI_REDUCTION
         uint64_t recvBuf[2];
         uint64_t sendBuf[2];
-        uint64_t sendStatus= gAccessedRemoteData ? PARTICIPATE : 1;
+        uint64_t sendStatus= IsSharedDataAccessed() ? PARTICIPATE : 1;
         ALL_REDUCE_BUFFER(sendBuf, sendStatus, key);
         retVal = REAL_FUNCTION(MPI_Allreduce)(sendBuf, recvBuf, 2, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert((ALL_REDUCE_GET_CONTEXT(recvBuf) == key) && "Context mismatch");
 #else
         uint64_t recvBuf;
-        uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : 1;
+        uint64_t sendBuf = IsSharedDataAccessed() ? PARTICIPATE : 1;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
 #endif
@@ -977,8 +1010,8 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.barrierSkipCache[key] = ALL_REDUCE_GET_STATUS(recvBuf);
         
         if(ALL_REDUCE_GET_STATUS(recvBuf) == PARTICIPATE) {
-            gAccessedRemoteData = false;
-            Log(comm, key, "VetoOnFirstRound:", curBarrierInstance, gAccessedRemoteData);
+            ResetSharedDataAccesseStatus();
+            Log(comm, key, "VetoOnFirstRound:", curBarrierInstance, IsSharedDataAccessed());
         }
 
         // if a get seen, force PARTICIPATE on the previous barrier
@@ -1019,6 +1052,7 @@ asm volatile ( #name ":" )
         DisableAndCleanupBarrierOptimization();
     }
     
+    
     static void DisableBarrierOptimization() {
         if(myRank == 0) {
             gettimeofday(&t2, NULL);
@@ -1034,6 +1068,7 @@ asm volatile ( #name ":" )
         // HACK HACK delete me
         DisableBarrierOptimization();
     }
+    
     
 #ifdef ENABLE_REPLAY
     vector<char> replayLog;
@@ -1119,7 +1154,7 @@ asm volatile ( #name ":" )
         
         uint64_t recvBuf;
         const int POTENTIAL_SKIP = 1;
-        uint64_t sendBuf = gAccessedRemoteData ? PARTICIPATE : POTENTIAL_SKIP;
+        uint64_t sendBuf = IsSharedDataAccessed() ? PARTICIPATE : POTENTIAL_SKIP;
         sendBuf = ALL_REDUCE_BUFFER(sendBuf);
         int retVal = REAL_FUNCTION(MPI_Allreduce)(&sendBuf, &recvBuf, 1, MPI_UNSIGNED_LONG, myMPIOp, comm);
         assert(ALL_REDUCE_GET_INSTANCE(recvBuf)  == GLOBAL_STATE.GetBarrierInstance());
@@ -1141,7 +1176,7 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.PageProtectAllSharedData(PROT_NONE);
 #endif
         // reset gAccessedRemoteData to false since we just did a barrier.
-        gAccessedRemoteData = false;
+        ResetSharedDataAccesseStatus();
         
         return retVal;
         
@@ -1151,6 +1186,13 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator = GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.find(key);
         // found
         if(GLOBAL_STATE.guidedOptimizationSkipCtxtHashSetIterator != GLOBAL_STATE.guidedOptimizationSkipCtxtHashSet.end()) {
+            // Ensure the assumption that this barrier is never preceded by an access to shared data is not violted.
+            if(IsSharedDataAccessed()) {
+                printf("\n Bad decison to skip this barrier. Proc %d accessed shared data", myRank);
+                PrintBT();
+                assert(0 && "Exiting due to bad barrier skipping");
+                exit(-1);
+            }
             GLOBAL_STATE.IncrementSkippable();
             // Skip this barrier
             return  MPI_SUCCESS;
@@ -1159,6 +1201,8 @@ asm volatile ( #name ":" )
             // TODO: Should we force a dmapp sync here? May be not since the user is supposed to have provided a sanitized set of skippables.
             // dmapp_return_t t = dmapp_gsync_wait();
             // assert(t == DMAPP_RC_SUCCESS);
+            // reset gAccessedRemoteData to false since we just did a barrier.
+            ResetSharedDataAccesseStatus();
             return REAL_FUNCTION(MPI_Barrier)(comm);
         }
     }
@@ -1206,6 +1250,7 @@ asm volatile ( #name ":" )
         return PerformGuidedOptimization(comm);
 #else
         key = GetContextHash();
+        //key = GetContextHashWithBackTrace(false);
 #endif
         // Is this barrier previously seen?
         GLOBAL_STATE.barrierSkipCacheIterator = GLOBAL_STATE.barrierSkipCache.find(key);
@@ -1266,7 +1311,7 @@ asm volatile ( #name ":" )
          #endif
          
          // Exit
-         gAccessedRemoteData = false; */
+         ResetSharedDataAccesseStatus(); */
         return retVal;
     }
     
@@ -1279,7 +1324,7 @@ asm volatile ( #name ":" )
          Log(comm, key, "MPI_Bcast:");
          #endif
          // Exit
-         gAccessedRemoteData = false; */
+         ResetSharedDataAccesseStatus(); */
         return retVal;
     }
     
@@ -1293,7 +1338,7 @@ asm volatile ( #name ":" )
          Log(comm, key, "MPI_Allreduce:");
          #endif
          // Exit
-         gAccessedRemoteData = false; */
+         ResetSharedDataAccesseStatus(); */
         return retVal;
     }
     
@@ -1342,7 +1387,8 @@ asm volatile ( #name ":" )
     extern dmapp_return_t REAL_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) ;
     dmapp_return_t WRAPPED_FUNCTION(dmapp_mem_register) ( void *addr, uint64_t length, dmapp_seg_desc_t *seg_desc) {
         dmapp_return_t retVal = REAL_FUNCTION(dmapp_mem_register)(addr, length, seg_desc);
-        gAccessedRemoteData = true;
+        set_accessed_remote_shared_data_(SHARED_DATA_ACCESSED_REMOTE);
+        
         
         //Record the address range in the map.
         GLOBAL_STATE.InsertInSharedDataRange(seg_desc->addr, seg_desc->len);
@@ -1367,7 +1413,7 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.DeleteFromSharedDataRange(seg_desc->addr, seg_desc->len);
         
         dmapp_return_t retVal =  REAL_FUNCTION(dmapp_mem_unregister)(seg_desc);
-        gAccessedRemoteData = true;
+        set_accessed_remote_shared_data_(SHARED_DATA_ACCESSED_REMOTE);
         
         return retVal;
     }
@@ -1379,7 +1425,7 @@ asm volatile ( #name ":" )
         GLOBAL_STATE.FindAddrInSharedDataRange(si->si_addr, faultAddress, len);
         
         // This indicate that the remote data is accessed.
-        gAccessedRemoteData = true;
+        set_accessed_remote_shared_data_();
         
         // Faulting page
         // Change protection to R+W

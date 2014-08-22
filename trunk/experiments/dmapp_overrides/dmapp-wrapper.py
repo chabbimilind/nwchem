@@ -65,7 +65,7 @@ extern "C" {
 
         if 'get' in sig[1] or 'ga_zero' in sig[1]:
             fp.write('\t gRemoteGetSeen = true;\n')
-        fp.write('\t gAccessedRemoteData = true;\n')
+        fp.write('\t SET_SHARED_DATA_ACCESS_STATE(SHARED_DATA_ACCESSED_REMOTE);\n')
         fp.write('\t return ')
 
         fp.write('REAL_FUNCTION(' + sig[1] + ')(') 
