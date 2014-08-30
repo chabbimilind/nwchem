@@ -61,6 +61,12 @@ struct HMCS{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
+
+volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
+struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
+struct timeval endTime __attribute__((aligned(CACHE_LINE_SIZE)));
+
+
 int threshold;
 int * thresholdAtLevel;
 
@@ -353,117 +359,186 @@ static inline void OutsideCriticalSection(){
 #endif
 }
 
+struct sigevent gSev;
+timer_t gTimerid;
+#define REALTIME_SIGNAL       (SIGRTMIN + 3)
+#define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);} while (0)
+
+void StartTimer(uint64_t timeoutSec){
+    struct itimerspec its;
+    /* Start the timer */
+    its.it_value.tv_sec = timeoutSec;
+    its.it_value.tv_nsec = 0;
+    its.it_interval.tv_sec = 0;
+    its.it_interval.tv_nsec = 0;
+    
+    if (timer_settime(gTimerid, 0, &its, NULL) == -1)
+        errExit("timer_settime");
+}
+
+static void TimeoutHandler(int sig, siginfo_t* siginfo, void* p){
+    // Stop timer and tell all threads to quit.
+    gTimedOut = true;
+    COMMIT_ALL_WRITES();
+    gettimeofday(&endTime, 0);
+}
+
+static void CreateTimer(){
+    
+    // the man pages cite sigev_notify_thread_id in struct sigevent,
+    // but often the only name is a hidden union name.
+#ifndef sigev_notify_thread_id
+#define sigev_notify_thread_id  _sigev_un._tid
+#endif
+    
+    memset(&gSev, 0, sizeof(struct sigevent));
+    gSev.sigev_notify = SIGEV_THREAD_ID;
+    gSev.sigev_signo = REALTIME_SIGNAL;
+    gSev.sigev_value.sival_ptr = &gTimerid;
+    gSev.sigev_notify_thread_id = syscall(SYS_gettid);
+    clockid_t clock = CLOCK_REALTIME;
+    int ret = timer_create(clock, &gSev, &gTimerid);
+    assert(ret == 0);
+    
+    /* Establish handler for timer signal */
+    
+    printf("Establishing handler for signal %d\n", REALTIME_SIGNAL);
+    struct sigaction sa;
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = TimeoutHandler;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(REALTIME_SIGNAL, &sa, NULL) == -1)
+        errExit("sigaction");
+}
+
+#define RUN_LOOP(nIter, level)       do{for(myIters = 0; (myIters < nIter) && (!gTimedOut); myIters++) { \
+                                    AcquireWraper(hmcs, &me); \
+                                    CriticalSection();\
+                                    ReleaseWrapper(hmcs, &me, level);\
+                                    OutsideCriticalSection();\
+                              }}while(0)
+
+
 int main(int argc, char *argv[]){
     
-    uint64_t totalIters = atol(argv[1]);
-    int numThreads = atoi(argv[2]);
-    int levels = atoi(argv[3]);
+    uint64_t timeoutSec = atol(argv[1]);
+    uint64_t totalIters = atol(argv[2]);
+    int numThreads = atoi(argv[3]);
+    int levels = atoi(argv[4]);
     int * participantsAtLevel = (int * ) malloc(sizeof(int) * levels);
     thresholdAtLevel = (int * ) malloc(sizeof(int) * levels);
     for (int i = 0; i <  levels; i++) {
-        participantsAtLevel[i] = atoi(argv[4 + 2*i]);
-        thresholdAtLevel[i] = atoi(argv[4 + 2*i + 1]);
+        participantsAtLevel[i] = atoi(argv[5 + 2*i]);
+        thresholdAtLevel[i] = atoi(argv[5 + 2*i + 1]);
     }
     
+    // initalize
+    gTimedOut = false;
+    
     omp_set_num_threads(numThreads);
-    uint64_t numIter = totalIters / numThreads;
-    struct timeval start;
-    struct timeval end;
     uint64_t elapsed;
+    uint64_t totalExecutedIters = 0;
     
     // Set up alarm after 3 minutes to time out
-    signal(SIGALRM, AlarmHandler);
+    //signal(SIGALRM, AlarmHandler);
     //alarm(ALARM_TIME);
-    
+    CreateTimer();
     
 #pragma omp parallel
     {
         int tid = omp_get_thread_num();
         int size = omp_get_num_threads();
+        uint64_t myIters=0;
+        uint64_t numIter = totalIters / numThreads;
         
 #ifdef CHECK_THREAD_AFFINITY
         PrintAffinity(tid);
 #endif
         HMCS * hmcs = LockInit(tid, size, levels, participantsAtLevel);
-        if(tid == 0)
-            gettimeofday(&start, 0);
-        
+        // Warmup
         QNode me;
-        
+        const int warmupRounds = 100;
         switch (levels) {
             case 1:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 1);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 1);
                 break;
             case 2:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 2);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(10, 2);
                 break;
             case 3:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 3);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 3);
                 break;
             case 4:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 4);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 4);
                 break;
             case 5:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 5);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 5);
                 break;
             case 6:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 6);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 6);
                 break;
             case 7:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 7);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 7);
                 break;
             case 8:
-                for(uint64_t i = 0; i < numIter; i++) {
-                    AcquireWraper(hmcs, &me);
-                    CriticalSection();
-                    ReleaseWrapper(hmcs, &me, 8);
-                    OutsideCriticalSection();
-                }
+                RUN_LOOP(warmupRounds, 8);
                 break;
             default:
                 assert(0 && "ReleaseWrapper > 8 NYI" );
                 break;
         }
+#pragma omp barrier
         
+        if(tid == 0) {
+            StartTimer(timeoutSec);
+            gettimeofday(&startTime, 0);
+        }
+        
+        switch (levels) {
+            case 1:
+                RUN_LOOP(numIter, 1);
+                break;
+            case 2:
+                RUN_LOOP(numIter, 2);
+                break;
+            case 3:
+                RUN_LOOP(numIter, 3);
+                break;
+            case 4:
+                RUN_LOOP(numIter, 4);
+                break;
+            case 5:
+                RUN_LOOP(numIter, 5);
+                break;
+            case 6:
+                RUN_LOOP(numIter, 6);
+                break;
+            case 7:
+                RUN_LOOP(numIter, 7);
+                break;
+            case 8:
+                RUN_LOOP(numIter, 8);
+                break;
+            default:
+                assert(0 && "ReleaseWrapper > 8 NYI" );
+                break;
+        }
+        // If timed out, let us add add total iters executed
+        if(gTimedOut){
+            ATOMIC_ADD(&totalExecutedIters, myIters);
+        }
     }
-    gettimeofday(&end, 0);
-    elapsed = TIME_SPENT(start, end);
-    double throughPut = (numIter * numThreads) * 1000000.0 / elapsed;
+    
+    // If not timed out, let us get the end time and total iters
+    if(!gTimedOut){
+        gettimeofday(&endTime, 0);
+        totalExecutedIters = (totalIters / numThreads) * numThreads;
+    }
+    
+    elapsed = TIME_SPENT(startTime, endTime);
+    double throughPut = (totalExecutedIters) * 1000000.0 / elapsed;
+    std::cout<<"\n elapsed = " << elapsed;
+    std::cout<<"\n totalExecutedIters = " << totalExecutedIters;
     std::cout<<"\n Throughput = " << throughPut << "\n";
     return 0;
 }
