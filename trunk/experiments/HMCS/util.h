@@ -113,34 +113,51 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 
 /* taken from https://computing.llnl.gov/tutorials/pthreads/man/pthread_setaffinity_np.txt */
 void PrintAffinity(int tid){
+#define NUM_CPUS (10000)
     int s, j;
-    cpu_set_t cpuset;
+    cpu_set_t * cpusetp = CPU_ALLOC(NUM_CPUS);
+    if (cpusetp == NULL) {
+               perror("CPU_ALLOC");
+               exit(EXIT_FAILURE);
+    }
+    size_t size = CPU_ALLOC_SIZE(NUM_CPUS);
+    CPU_ZERO_S(size, cpusetp);
+
+
     pthread_t thread;
     
     thread = pthread_self();
     
     /* Set affinity mask to include CPUs tid */
     
-    CPU_ZERO(&cpuset);
-    CPU_SET(1*tid, &cpuset);
+    CPU_ZERO_S(size, cpusetp);
+    CPU_SET_S(1*tid, size, cpusetp);
     if(tid == 0 )
         printf("CPU_SET(1*tid, &cpuset);\n");
     
-    s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+#if 0
+    s = pthread_setaffinity_np(thread, size, cpusetp);
     if (s != 0)
         handle_error_en(s, "pthread_setaffinity_np");
+#endif
+
 #if 0
     /* Check the actual affinity mask assigned to the thread */
     
-    s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+    s = pthread_getaffinity_np(thread, size, cpusetp);
     if (s != 0)
         handle_error_en(s, "pthread_getaffinity_np");
     
-    printf("Set returned by pthread_getaffinity_np() contained:\n");
-    for (j = 0; j < CPU_SETSIZE; j++)
-        if (CPU_ISSET(j, &cpuset))
+    //printf("Set returned by pthread_getaffinity_np() contained:\n");
+    assert(CPU_COUNT_S(size, cpusetp) == 1);
+#pragma omp ordered
+{
+    for (j = 0; j < NUM_CPUS; j++)
+        if (CPU_ISSET_S(j, size, cpusetp))
             printf("    %d: CPU %d\n", tid,j);
+}
 #endif
+#undef NUM_CPUS
 }
 
 #endif

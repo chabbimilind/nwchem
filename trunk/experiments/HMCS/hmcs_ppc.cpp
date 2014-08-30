@@ -358,8 +358,8 @@ int main(int argc, char *argv[]){
     uint64_t totalIters = atol(argv[1]);
     int numThreads = atoi(argv[2]);
     int levels = atoi(argv[3]);
-    int * participantsAtLevel = (int * ) malloc(levels);
-    thresholdAtLevel = (int * ) malloc(levels);
+    int * participantsAtLevel = (int * ) malloc(sizeof(int) * levels);
+    thresholdAtLevel = (int * ) malloc(sizeof(int) * levels);
     for (int i = 0; i <  levels; i++) {
         participantsAtLevel[i] = atoi(argv[4 + 2*i]);
         thresholdAtLevel[i] = atoi(argv[4 + 2*i + 1]);
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]){
     
     // Set up alarm after 3 minutes to time out
     signal(SIGALRM, AlarmHandler);
-    alarm(ALARM_TIME);
+    //alarm(ALARM_TIME);
     
     
 #pragma omp parallel
