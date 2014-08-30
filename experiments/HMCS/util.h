@@ -1,7 +1,7 @@
 #ifndef __UTIL_H__
 #define __UTIL_H_
 
-
+#include <sched.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -14,6 +14,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
+#include <unistd.h>
+#include <sys/syscall.h>    /* For SYS_xxx definitions */
 
 #define  LOCKED (false)
 #define  UNLOCKED (true)
@@ -48,6 +50,7 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 #define CAS(location, oldValue, newValue) assert(0 && "NYI")
 #define SWAP(location, value) PPCSwap((volatile int64_t *)location, (int64_t)value)
 #define BOOL_CAS(location, oldValue, newValue) PPCBoolCompareAndSwap((volatile int64_t *)location, (int64_t)oldValue, (int64_t)newValue)
+#define ATOMIC_ADD(location, value) __fetch_and_andlp((volatile int64_t *) location, value)
 #define FORCE_INS_ORDERING() __isync()
 #define COMMIT_ALL_WRITES() __lwsync()
 #else
@@ -55,6 +58,7 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 #define CAS(location, oldValue, newValue) __sync_val_compare_and_swap(location, oldValue, newValue)
 #define SWAP(location, value) __sync_lock_test_and_set(location, value)
 #define BOOL_CAS(location, oldValue, newValue) __sync_bool_compare_and_swap(location, oldValue, newValue)
+#define ATOMIC_ADD(location, value) __sync_fetch_and_add(location,value)
 
 #ifdef __PPC__
 #define FORCE_INS_ORDERING() __asm__ __volatile__ (" isync\n\t")
@@ -115,13 +119,15 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 void PrintAffinity(int tid){
 #define NUM_CPUS (10000)
     int s, j;
-    cpu_set_t * cpusetp = CPU_ALLOC(NUM_CPUS);
-    if (cpusetp == NULL) {
+    cpu_set_t  cpuset;// = CPU_ALLOC(NUM_CPUS);
+/*    if (cpusetp == NULL) {
                perror("CPU_ALLOC");
                exit(EXIT_FAILURE);
     }
     size_t size = CPU_ALLOC_SIZE(NUM_CPUS);
-    CPU_ZERO_S(size, cpusetp);
+*/
+    size_t size = sizeof(cpu_set_t);//CPU_ALLOC_SIZE(NUM_CPUS);
+    CPU_ZERO(&cpuset);
 
 
     pthread_t thread;
@@ -130,13 +136,13 @@ void PrintAffinity(int tid){
     
     /* Set affinity mask to include CPUs tid */
     
-    CPU_ZERO_S(size, cpusetp);
-    CPU_SET_S(1*tid, size, cpusetp);
+    CPU_ZERO(&cpuset);
+    CPU_SET(1*tid,&cpuset);
     if(tid == 0 )
         printf("CPU_SET(1*tid, &cpuset);\n");
     
-#if 0
-    s = pthread_setaffinity_np(thread, size, cpusetp);
+#if 1
+    s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
     if (s != 0)
         handle_error_en(s, "pthread_setaffinity_np");
 #endif
@@ -144,7 +150,7 @@ void PrintAffinity(int tid){
 #if 0
     /* Check the actual affinity mask assigned to the thread */
     
-    s = pthread_getaffinity_np(thread, size, cpusetp);
+    s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
     if (s != 0)
         handle_error_en(s, "pthread_getaffinity_np");
     
@@ -152,8 +158,8 @@ void PrintAffinity(int tid){
     assert(CPU_COUNT_S(size, cpusetp) == 1);
 #pragma omp ordered
 {
-    for (j = 0; j < NUM_CPUS; j++)
-        if (CPU_ISSET_S(j, size, cpusetp))
+    for (j = 0; j < CPU_SETSIZE; j++)
+        if (CPU_ISSET(j, &cpuset))
             printf("    %d: CPU %d\n", tid,j);
 }
 #endif
