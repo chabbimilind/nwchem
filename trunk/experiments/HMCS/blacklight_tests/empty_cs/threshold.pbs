@@ -1,0 +1,10 @@
+#!/bin/bash
+#PBS -l ncpus=2048
+#ncpus must be a multiple of 16
+#PBS -l walltime=1:00:00
+#PBS -j oe
+#PBS -q batch
+set echo
+cd $PBS_O_WORKDIR
+#run my executable
+bash threshold.sh

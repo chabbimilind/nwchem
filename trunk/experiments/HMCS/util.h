@@ -1,6 +1,8 @@
 #ifndef __UTIL_H__
 #define __UTIL_H_
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -14,6 +16,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/syscall.h>    /* For SYS_xxx definitions */
 
@@ -102,12 +105,26 @@ void DoWorkInsideCS(){
 }
 
 // perform some dummy operations and spend time when outside critical section
-void DoWorkOutsideCS(){
-    volatile uint64_t i = 0;
-    volatile uint64_t end = 4 * 1000;
-    volatile uint64_t inc = 1;
-    for (; i < end; i += inc)
-        ;
+uint64_t DoWorkOutsideCS(struct drand48_data * randSeedbuffer){
+//#define CLK_SPEED (2.394413)
+#ifndef CLK_SPEED
+//blacklight clock speed un nano sec
+#define CLK_SPEED (2.266591)
+#endif
+#ifndef MAX_SLEEP
+// blacklight max sleep in nano sec
+#define MAX_SLEEP (2400)
+#endif
+        uint64_t start = __rdtsc();
+        double randNum;
+        drand48_r(randSeedbuffer, &randNum);
+        volatile int i = 0;
+        uint64_t diff = randNum * (MAX_SLEEP * CLK_SPEED);
+        while(1){
+                uint64_t end = __rdtsc();
+                if((end - start)  > diff)
+                        return end - start;
+        }
 }
 #endif
 
@@ -118,6 +135,7 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 /* taken from https://computing.llnl.gov/tutorials/pthreads/man/pthread_setaffinity_np.txt */
 void PrintAffinity(int tid){
 #define NUM_CPUS (10000)
+#if 0
     int s, j;
     cpu_set_t  cpuset;// = CPU_ALLOC(NUM_CPUS);
 /*    if (cpusetp == NULL) {
@@ -141,7 +159,6 @@ void PrintAffinity(int tid){
     if(tid == 0 )
         printf("CPU_SET(1*tid, &cpuset);\n");
     
-#if 1
     s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
     if (s != 0)
         handle_error_en(s, "pthread_setaffinity_np");

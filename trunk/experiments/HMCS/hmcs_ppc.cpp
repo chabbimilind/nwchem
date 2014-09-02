@@ -353,9 +353,9 @@ static inline void CriticalSection(){
     assert(var == lvar + 1);
 #endif
 }
-static inline void OutsideCriticalSection(){
+static inline void OutsideCriticalSection(struct drand48_data * randSeedbuffer){
 #ifdef  DOWORK
-    DoWorkOutsideCS();
+    DoWorkOutsideCS(randSeedbuffer);
 #endif
 }
 
@@ -401,8 +401,7 @@ static void CreateTimer(){
     assert(ret == 0);
     
     /* Establish handler for timer signal */
-    
-    printf("Establishing handler for signal %d\n", REALTIME_SIGNAL);
+    //printf("Establishing handler for signal %d\n", REALTIME_SIGNAL);
     struct sigaction sa;
     sa.sa_flags = SA_SIGINFO;
     sa.sa_sigaction = TimeoutHandler;
@@ -415,10 +414,10 @@ static void CreateTimer(){
                                     AcquireWraper(hmcs, &me); \
                                     CriticalSection();\
                                     ReleaseWrapper(hmcs, &me, level);\
-                                    OutsideCriticalSection();\
+                                    OutsideCriticalSection(& randSeedbuffer);\
                               }}while(0)
 
-
+using namespace std;
 int main(int argc, char *argv[]){
     
     uint64_t timeoutSec = atol(argv[1]);
@@ -427,10 +426,14 @@ int main(int argc, char *argv[]){
     int levels = atoi(argv[4]);
     int * participantsAtLevel = (int * ) malloc(sizeof(int) * levels);
     thresholdAtLevel = (int * ) malloc(sizeof(int) * levels);
+    cout<<"\n timeoutSec="<<timeoutSec<<" totalIters="<<totalIters<<" numThreads="<<numThreads<<" levels="<<levels<<" ";
     for (int i = 0; i <  levels; i++) {
         participantsAtLevel[i] = atoi(argv[5 + 2*i]);
         thresholdAtLevel[i] = atoi(argv[5 + 2*i + 1]);
+	cout<<" n"<<i+1<<"="<<participantsAtLevel[i]<<" t"<<i+1<<"="<<thresholdAtLevel[i];
     }
+    cout<<endl; 
+
     
     // initalize
     gTimedOut = false;
@@ -450,6 +453,8 @@ int main(int argc, char *argv[]){
         int size = omp_get_num_threads();
         uint64_t myIters=0;
         uint64_t numIter = totalIters / numThreads;
+        struct drand48_data randSeedbuffer;
+        srand48_r(tid, &randSeedbuffer);
         
 #ifdef CHECK_THREAD_AFFINITY
         PrintAffinity(tid);
@@ -457,13 +462,13 @@ int main(int argc, char *argv[]){
         HMCS * hmcs = LockInit(tid, size, levels, participantsAtLevel);
         // Warmup
         QNode me;
-        const int warmupRounds = 100;
+        const int warmupRounds = 20;
         switch (levels) {
             case 1:
                 RUN_LOOP(warmupRounds, 1);
                 break;
             case 2:
-                RUN_LOOP(10, 2);
+                RUN_LOOP(warmupRounds, 2);
                 break;
             case 3:
                 RUN_LOOP(warmupRounds, 3);
@@ -533,6 +538,10 @@ int main(int argc, char *argv[]){
     if(!gTimedOut){
         gettimeofday(&endTime, 0);
         totalExecutedIters = (totalIters / numThreads) * numThreads;
+    } else {
+      std::cout<<"\n Timed out";
+      // All except thread 0 (signal received) will report 1 trip extra
+      // If each thread performs 1K iters, it is a small .1% skid. So ignore.
     }
     
     elapsed = TIME_SPENT(startTime, endTime);
