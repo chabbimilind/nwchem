@@ -1,16 +1,18 @@
 set -ex
 #FLAGS="-g -fast -openmp -ipo -xhost"
-FLAGS="-fast -openmp -ipo -xhost"
+FLAGS="-DDOWORK -fast -openmp -ipo -xhost"
 LIBS=" -lrt "
 CXX=icc
 $CXX $FLAGS -o hmcs_blacklight hmcs_ppc.cpp $LIBS
 #export KMP_AFFINITY=verbose,granularity=fine,compact
 export KMP_AFFINITY=granularity=fine,compact
+#explicitly set PBS_HT_NCPUS
+export PBS_HT_NCPUS=4096
 export OMP_NUM_THREADS=$PBS_HT_NCPUS
 export OMP_WAIT_POLICY=active
 echo $OMP_NUM_THREADS
 echo $PBS_HT_NCPUS
-cat /dev/cpuset/torque/${PBS_JOBID}/cpus
+#cat /dev/cpuset/torque/${PBS_JOBID}/cpus
 timeout=300
 infL=9223372036854775807
 inf=2147483647
@@ -73,7 +75,7 @@ echo "HMCS 4 level"
 nIter=$infL
 numLevels=4
 n123=32
-t3=32
+t123=32
 n4=64
 t4=2
 n5=512

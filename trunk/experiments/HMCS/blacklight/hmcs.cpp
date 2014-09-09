@@ -282,12 +282,6 @@ HMCS * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
             case 8:
                 ReleaseLockReal = LockRelease<8>::Release;
                 break;
-            case 9:
-                ReleaseLockReal = LockRelease<9>::Release;
-                break;
-            case 10:
-                ReleaseLockReal = LockRelease<10>::Release;
-                break;
             default:
                 assert(0 && "Release > 8 NYI");
                 break;
@@ -426,16 +420,17 @@ static void CreateTimer(){
 using namespace std;
 int main(int argc, char *argv[]){
     
-    uint64_t timeoutSec = atol(argv[1]);
-    uint64_t totalIters = atol(argv[2]);
-    int numThreads = atoi(argv[3]);
-    int levels = atoi(argv[4]);
+    uint64_t mustBeAMultile = atol(argv[1]);
+    uint64_t timeoutSec = atol(argv[2]);
+    uint64_t totalIters = atol(argv[3]);
+    int numThreads = atoi(argv[4]);
+    int levels = atoi(argv[5]);
     int * participantsAtLevel = (int * ) malloc(sizeof(int) * levels);
     thresholdAtLevel = (int * ) malloc(sizeof(int) * levels);
     cout<<"\n timeoutSec="<<timeoutSec<<" totalIters="<<totalIters<<" numThreads="<<numThreads<<" levels="<<levels<<" ";
     for (int i = 0; i <  levels; i++) {
-        participantsAtLevel[i] = atoi(argv[5 + 2*i]);
-        thresholdAtLevel[i] = atoi(argv[5 + 2*i + 1]);
+        participantsAtLevel[i] = atoi(argv[6 + 2*i]);
+        thresholdAtLevel[i] = atoi(argv[6 + 2*i + 1]);
 	cout<<" n"<<i+1<<"="<<participantsAtLevel[i]<<" t"<<i+1<<"="<<thresholdAtLevel[i];
     }
     cout<<endl; 
@@ -494,18 +489,17 @@ int main(int argc, char *argv[]){
             case 8:
                 RUN_LOOP(warmupRounds, 8);
                 break;
-            case 9:
-                RUN_LOOP(warmupRounds, 9);
-                break;
-            case 10:
-                RUN_LOOP(warmupRounds, 10);
-                break;
             default:
-                assert(0 && "ReleaseWrapper > 10 NYI" );
+                assert(0 && "ReleaseWrapper > 8 NYI" );
                 break;
         }
 #pragma omp barrier
-        
+        // rest myIters
+        myIters = 0; 
+        if(tid % mustBeAMultile !=0)
+            goto DONE;
+	//printf("\n %d part", tid);
+
         if(tid == 0) {
             StartTimer(timeoutSec);
             gettimeofday(&startTime, 0);
@@ -536,16 +530,11 @@ int main(int argc, char *argv[]){
             case 8:
                 RUN_LOOP(numIter, 8);
                 break;
-            case 9:
-                RUN_LOOP(numIter, 9);
-                break;
-            case 10:
-                RUN_LOOP(numIter, 10);
-                break;
             default:
-                assert(0 && "ReleaseWrapper > 10 NYI" );
+                assert(0 && "ReleaseWrapper > 8 NYI" );
                 break;
         }
+DONE:
         // If timed out, let us add add total iters executed
         if(gTimedOut){
             ATOMIC_ADD(&totalExecutedIters, myIters);
@@ -555,7 +544,7 @@ int main(int argc, char *argv[]){
     // If not timed out, let us get the end time and total iters
     if(!gTimedOut){
         gettimeofday(&endTime, 0);
-        totalExecutedIters = (totalIters / numThreads) * numThreads;
+        totalExecutedIters = (totalIters / numThreads) * (numThreads/mustBeAMultile);
     } else {
       std::cout<<"\n Timed out";
       // All except thread 0 (signal received) will report 1 trip extra
