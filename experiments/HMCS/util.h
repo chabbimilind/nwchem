@@ -2,6 +2,7 @@
 #define __UTIL_H_
 
 #define __STDC_FORMAT_MACROS
+#define __STDC_LIMIT_MACROS
 #include <inttypes.h>
 #include <sched.h>
 #include <stdio.h>
@@ -24,7 +25,11 @@
 #define  UNLOCKED (true)
 
 #define WAIT (0xffffffffffffffff)
-#define ACQUIRE_PARENT (0xfffffffffffffffe)
+#define ABORTED (0xeffffffffffffffe)
+#define READY_TO_USE (0xdffffffffffffffd)
+#define MOVED_ON (QNode *)(0xdffffffffffffffd)
+#define ACQUIRE_PARENT (0xcffffffffffffffc)
+
 #define COHORT_START (0x1)
 #define ALARM_TIME (3 * 60)
 
@@ -184,4 +189,5 @@ void PrintAffinity(int tid){
 }
 
 #endif
+
 
