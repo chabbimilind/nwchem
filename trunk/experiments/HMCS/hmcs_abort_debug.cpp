@@ -61,6 +61,7 @@ struct HNode{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
+#define AtomicWrite(var, val) __sync_lock_test_and_set(var, val)
 
 volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
@@ -95,7 +96,8 @@ static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
         }
     }
     assert(I->status[0] == oldStatus || I->status[0] == WAIT);
-    I->status[0] = READY_TO_USE;
+    //I->status[0] = READY_TO_USE;
+    AtomicWrite(&(I->status[0]),READY_TO_USE);
 }
 
 static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode){
@@ -106,7 +108,8 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
             HandleHorizontalAbortion(L, I->next, abortedNode);
         }
         assert(I->status[0] == oldStatus || I->status[0] == WAIT);
-        I->status[0] = READY_TO_USE;
+        //I->status[0] = READY_TO_USE;
+        AtomicWrite(&(I->status[0]),READY_TO_USE);
     } else {
         HandleVerticalAbortion(L->parent, &(L->node), abortedNode);
         assert(I->status[0] == oldStatus || I->status[0] == WAIT);
@@ -228,7 +231,7 @@ struct HMCS {
     }
     
     static inline bool AcquireWraper(HNode * L, QNode *I){
-        QNode * abortedNode = HMCS<level>::Acquire(L, I, 10);
+        QNode * abortedNode = HMCS<level>::Acquire(L, I, 0);
         if (abortedNode) {
             HandleVerticalAbortion(L, I, abortedNode);
             return false;
@@ -247,7 +250,8 @@ struct HMCS {
                 HandleHorizontalPassing(L, I->next, value);
             }
             assert(I->status[0] == oldStatus || I->status[0] == WAIT);
-            I->status[0] = READY_TO_USE;
+            //I->status[0] = READY_TO_USE;
+            AtomicWrite(&(I->status[0]),READY_TO_USE);
         } else {
             HMCS<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
@@ -345,7 +349,7 @@ struct HMCS<1> {
     }
 
     static inline bool AcquireWraper(HNode * L, QNode *I){
-        QNode * abortedNode = Acquire(L, I, 100);
+        QNode * abortedNode = Acquire(L, I, 0);
         if (abortedNode) {
             return false;
         }
@@ -362,7 +366,8 @@ struct HMCS<1> {
             }
         }
         // Reset status
-        I->status[0] = READY_TO_USE;
+        //I->status[0] = READY_TO_USE;
+        AtomicWrite(&(I->status[0]),READY_TO_USE);
     }
     
     static inline void HandleHorizontalPassing(HNode * L, QNode *I){
@@ -372,7 +377,8 @@ struct HMCS<1> {
                 HandleHorizontalPassing(L, I->next);
             }
             // Reset status
-            I->status[0] = READY_TO_USE;
+            //I->status[0] = READY_TO_USE;
+            AtomicWrite(&(I->status[0]),READY_TO_USE);
         } else {
             DealWithRestOfLevel1(L, I);
         }
