@@ -13,7 +13,7 @@
 #define handle_error(msg) \
 do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
-//#define DEBUG
+#define DEBUG
 
 
 struct QNode{
@@ -95,7 +95,13 @@ static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
     uint64_t oldStatus = AtomicLoad(&(I->status[0])); // TO DO Delete me
 #endif
     if(!BOOL_CAS(&(L->lock), I, NULL)) {
-        while (I->next == NULL) ; // spin
+        //No unbounded wait...
+        // while (I->next == NULL) ; // spin
+        if (BOOL_CAS(&(I->next), NULL, CANT_WAIT_FOR_NEXT)) {
+            // Don't do AtomicWrite(&(I->status[0]),READY_TO_USE); Successor is responsible for doing it
+            return;
+        }
+        
         uint64_t prevStatus = SWAP(&(I->next->status[0]), ACQUIRE_PARENT);
         if(prevStatus == ABORTED) {
             DealWithRestOfHorizontal(L, I->next);
@@ -114,6 +120,9 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
     uint64_t oldStatus = I->status[0]; // TO DO Delete me
 #endif
     if (I->next) {
+#ifdef DEBUG
+        assert(I->next != CANT_WAIT_FOR_NEXT);
+#endif
         uint64_t prevStatus = SWAP(&(I->next->status[0]), ACQUIRE_PARENT);
         if(prevStatus == ABORTED){
             HandleHorizontalAbortion(L, I->next, abortedNode);
@@ -204,7 +213,37 @@ struct HMCS {
             //assert(I->status[0] == COHORT_START);
             return ret;
         } else {
-            pred->next = I;
+            // To avoid unbounded wait on I->next
+            // pred->next = I;
+            if(SWAP(&(pred->next), I) == CANT_WAIT_FOR_NEXT){
+                // Free pred to be reused
+                AtomicWrite(&(pred->status[0]), READY_TO_USE);
+                // This level is acquired, acquire parent ...
+                
+                
+                // beginning of cohort
+                I->status[0] = COHORT_START;
+#ifdef DEBUG
+                if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
+                    handle_error("mprotect");
+#endif
+                // This means this level is acquired and we can start the next level
+                QNode * ret =  HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
+                
+#ifdef DEBUG
+                if(ret) {
+                    if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
+                        handle_error("mprotect");
+                }
+                assert(I->status[0] == COHORT_START);
+#endif
+                return ret;
+
+                
+                
+                
+                
+            }
             
         START_SPIN:
             for(;patience > 0; patience--){
@@ -290,6 +329,9 @@ struct HMCS {
         uint64_t oldStatus = AtomicLoad(&(I->status[0]));//I->status[0]; // TO DO Delete me
 #endif
         if (I->next) {
+#ifdef DEBUG
+            assert(I->next != CANT_WAIT_FOR_NEXT);
+#endif
             uint64_t prevStatus = SWAP(&(I->next->status[0]), value);
             if(prevStatus == ABORTED){
                 HandleHorizontalPassing(L, I->next, value);
@@ -388,7 +430,24 @@ struct HMCS<1> {
         
         pred = (QNode *) SWAP(&(L->lock), I);
         if(pred){
-            pred->next = I;
+            
+            // Avoid unbounded wait for I->next
+            // pred->next = I;
+            if(SWAP(&(pred->next), I) == CANT_WAIT_FOR_NEXT){
+                // Free pred to be reused
+                AtomicWrite(&(pred->status[0]), READY_TO_USE);
+                
+                // This level is acquired ...
+                I->status[0] = UNLOCKED;
+#ifdef DEBUG
+                if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
+                    handle_error("mprotect");
+#endif
+                return NULL; // got lock;
+                
+                
+            }
+            
         START_SPIN:
             for(;patience > 0;patience--){
                 uint64_t myStatus = I->status[0];
@@ -433,7 +492,12 @@ struct HMCS<1> {
 
     static inline void DealWithRestOfLevel1(HNode * L, QNode *I){
         if(!BOOL_CAS(&(L->lock), I, NULL)) {
-            while (I->next == NULL) ; // spin
+            // No unbounded waiting
+            //while (I->next == NULL) ; // spin
+            if (BOOL_CAS(&(I->next), NULL, CANT_WAIT_FOR_NEXT)) {
+                // Don't do AtomicWrite(&(I->status[0]),READY_TO_USE); Successor is responsible for doing it
+                return;
+            }
             uint64_t prevStatus = SWAP(&(I->next->status[0]), UNLOCKED);
             if(prevStatus == ABORTED) {
                 DealWithRestOfLevel1(L, I->next);
@@ -446,6 +510,9 @@ struct HMCS<1> {
     
     static inline void HandleHorizontalPassing(HNode * L, QNode *I){
         if (I->next) {
+#ifdef DEBUG
+            assert(I->next != CANT_WAIT_FOR_NEXT);
+#endif
             uint64_t prevStatus = SWAP(&(I->next->status[0]), UNLOCKED);
             if(prevStatus == ABORTED){
                 HandleHorizontalPassing(L, I->next);
