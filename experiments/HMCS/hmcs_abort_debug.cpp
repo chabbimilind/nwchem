@@ -13,6 +13,8 @@
 #define handle_error(msg) \
 do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
+//#define DEBUG
+
 
 struct QNode{
     struct QNode * volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
@@ -163,21 +165,12 @@ struct HMCS {
                     }
                 }
                 // Abort
-                // TODO .. use CAS
-                // Swap with ACQUIRE_PARENT, so that next time when we want to use the node, we go through the default case
-                uint64_t statusAtDefaultCase = SWAP(&(I->status[0]), ACQUIRE_PARENT);
-                
-                if (statusAtDefaultCase != READY_TO_USE) {
-#ifdef DEBUG
-                    assert(statusAtDefaultCase == WAIT);
-#endif
+                // CAS with ACQUIRE_PARENT, so that next time when we want to use the node, we go through the default case
+                if(CAS(&(I->status[0]), WAIT, ACQUIRE_PARENT) !=  READY_TO_USE) {
                     // behavior is analogous to an ABORT, except that we don't set status = ABORTED
                     // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
                     return I;
                 } // else I is READY_TO_USE fall through to USE_QNODE
-                // set I->status[0 back to READY_TO_USE..
-                AtomicWrite(&(I->status[0]), READY_TO_USE);
-                
         }
 
     USE_QNODE:
@@ -377,20 +370,12 @@ struct HMCS<1> {
                     }
                 }
                 // Abort
-                // TODO use CAS
-                // Swap  UNLOCKED, so that next time when we want to use the node, we go through the UNLOCKED case unless it is updated to READY_TO_USE
-                statusAtDefaultCase = SWAP(&(I->status[0]), UNLOCKED);
-                
-                if (statusAtDefaultCase != READY_TO_USE) {
-#ifdef DEBUG
-                    assert(statusAtDefaultCase == WAIT);
-#endif
+                // CAS  UNLOCKED, so that next time when we want to use the node, we go through the UNLOCKED case unless it is updated to READY_TO_USE
+                if(CAS(&(I->status[0]), WAIT, UNLOCKED) !=  READY_TO_USE) {
                     // behavior is analogous to an ABORT, except that we don't set status = ABORTED
                     // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
                     return I;
-                } // else I is READY_TO_USE fall through to USE_QNODE
-                // set I->status[0 back to READY_TO_USE..
-                AtomicWrite(&(I->status[0]), READY_TO_USE);
+                } // else I is READY_TO_USE break to USE_QNODE
                 break;
             default:assert(0 && "Should never reach here");
         }
