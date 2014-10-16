@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <atomic>
 #include <sys/syscall.h>    /* For SYS_xxx definitions */
 
 #define  LOCKED (false)
@@ -79,12 +80,18 @@ assert( 0 && "unsupported platform");
 #endif
 
 #endif
+
+#define AtomicWrite(loc, value) std::atomic_store_explicit( (volatile std::atomic<uint64_t> *)(loc), (value), std::memory_order_relaxed)
+
+#define AtomicLoad(loc) std::atomic_load_explicit( (const volatile std::atomic<uint64_t> *)(loc), std::memory_order_relaxed)
+
+
 #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 
 #define CACHE_LINE_SIZE (128)
 
 //#define DOWORK
-//#define VALIDATE
+#define VALIDATE
 /* for performance measurement on small number of levels, disable try release */
 /* for correctness checks enable try release */
 //#define TRY_RELEASE

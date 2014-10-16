@@ -61,7 +61,7 @@ struct HNode{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
-#define AtomicWrite(var, val) __sync_lock_test_and_set(var, val)
+//#define AtomicWrite(var, val) __sync_lock_test_and_set(var, val)
 
 volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
@@ -82,12 +82,16 @@ static inline void HandleVerticalAbortion(HNode * L, QNode *I, QNode * abortedNo
     if(I==abortedNode) {
         return;
     }
-    assert(I->status[0] == COHORT_START);
+#ifdef DEBUG
+    assert(AtomicLoad(&(I->status[0])) == COHORT_START);
+#endif
     HandleHorizontalAbortion(L, I, abortedNode);
 }
 
 static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
-    uint64_t oldStatus = I->status[0]; // TO DO Delete me
+#ifdef DEBUG
+    uint64_t oldStatus = AtomicLoad(&(I->status[0])); // TO DO Delete me
+#endif
     if(!BOOL_CAS(&(L->lock), I, NULL)) {
         while (I->next == NULL) ; // spin
         uint64_t prevStatus = SWAP(&(I->next->status[0]), ACQUIRE_PARENT);
@@ -95,24 +99,36 @@ static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
             DealWithRestOfHorizontal(L, I->next);
         }
     }
-    assert(I->status[0] == oldStatus || I->status[0] == WAIT);
+#ifdef DEBUG
+    uint64_t tmp = AtomicLoad(&(I->status[0]));
+    assert(tmp == oldStatus || tmp == WAIT /* somebody waiting */ || tmp == ACQUIRE_PARENT /* abort in waiting for READY_TO_USE */);
+#endif
     //I->status[0] = READY_TO_USE;
     AtomicWrite(&(I->status[0]),READY_TO_USE);
 }
 
 static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode){
+#ifdef DEBUG
     uint64_t oldStatus = I->status[0]; // TO DO Delete me
+#endif
     if (I->next) {
         uint64_t prevStatus = SWAP(&(I->next->status[0]), ACQUIRE_PARENT);
         if(prevStatus == ABORTED){
             HandleHorizontalAbortion(L, I->next, abortedNode);
         }
-        assert(I->status[0] == oldStatus || I->status[0] == WAIT);
+        
+#ifdef DEBUG
+        uint64_t tmp = AtomicLoad(&(I->status[0]));
+        assert(tmp == oldStatus || tmp == WAIT /* somebody waiting */ || tmp == ACQUIRE_PARENT /* abort in waiting for READY_TO_USE */);
+#endif
         //I->status[0] = READY_TO_USE;
         AtomicWrite(&(I->status[0]),READY_TO_USE);
     } else {
         HandleVerticalAbortion(L->parent, &(L->node), abortedNode);
-        assert(I->status[0] == oldStatus || I->status[0] == WAIT);
+#ifdef DEBUG
+        uint64_t tmp = AtomicLoad(&(I->status[0]));
+        assert(tmp == oldStatus || tmp == WAIT /* somebody waiting */ || tmp == ACQUIRE_PARENT /* abort in waiting for READY_TO_USE */);
+#endif
         // back from vertical abortion
         DealWithRestOfHorizontal(L, I);
     }
@@ -137,10 +153,34 @@ struct HMCS {
             case WAIT: break;
             default:
             // Covers case ACQUIRE_PARENT: assert(0 && "CASE ACQUIRE_PARENT");
+#ifdef DEBUG
                 assert(prevStatus !=  ACQUIRE_PARENT + 1);
-                while(I->status[0] != READY_TO_USE);
+#endif
+                //while(I->status[0] != READY_TO_USE); No unbounded wait
+                for(;patience > 0; patience--) {
+                    if(AtomicLoad(&(I->status[0])) == READY_TO_USE){
+                        goto USE_QNODE;
+                    }
+                }
+                // Abort
+                // TODO .. use CAS
+                // Swap with ACQUIRE_PARENT, so that next time when we want to use the node, we go through the default case
+                uint64_t statusAtDefaultCase = SWAP(&(I->status[0]), ACQUIRE_PARENT);
+                
+                if (statusAtDefaultCase != READY_TO_USE) {
+#ifdef DEBUG
+                    assert(statusAtDefaultCase == WAIT);
+#endif
+                    // behavior is analogous to an ABORT, except that we don't set status = ABORTED
+                    // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
+                    return I;
+                } // else I is READY_TO_USE fall through to USE_QNODE
+                // set I->status[0 back to READY_TO_USE..
+                AtomicWrite(&(I->status[0]), READY_TO_USE);
+                
         }
-        
+
+    USE_QNODE:
         I->next = NULL;
         // Updates must happen before swap
         COMMIT_ALL_WRITES();
@@ -151,20 +191,23 @@ struct HMCS {
             // I am the first one at this level
             // begining of cohort
         GOT_LOCK:
+            
             I->status[0] = COHORT_START;
+
             // Acquire at next level if not at the top level
             //assert(I->status[0] == COHORT_START);
             //printf("\n %p", I->status);
+#ifdef DEBUG
             if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                 handle_error("mprotect");
-                
+#endif
             QNode * ret = HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
-            
+#ifdef DEBUG
             if(ret) {
                 if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
                     handle_error("mprotect");
             }
-
+#endif
             //assert(I->status[0] == COHORT_START);
             return ret;
         } else {
@@ -172,30 +215,32 @@ struct HMCS {
             
         START_SPIN:
             for(;patience > 0; patience--){
-                uint64_t myStatus = I->status[0];
+                uint64_t myStatus = AtomicLoad(&(I->status[0])); //I->status[0];
                 if(myStatus < ACQUIRE_PARENT) {
+#ifdef DEBUG
                     assert(I->status[0] != ACQUIRE_PARENT);
-
                     if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                         handle_error("mprotect");
-                    
+#endif
                     return NULL;
                 }
                 if(myStatus == ACQUIRE_PARENT) {
                     // beginning of cohort
                     I->status[0] = COHORT_START;
+#ifdef DEBUG
                     if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                         handle_error("mprotect");
+#endif
                     // This means this level is acquired and we can start the next level
                     QNode * ret =  HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
                     
+#ifdef DEBUG
                     if(ret) {
                         if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
                             handle_error("mprotect");
                     }
-                    
-                    
                     assert(I->status[0] == COHORT_START);
+#endif
                     return ret;
                 }
                 // spin back; (I->status[0] == WAIT)
@@ -205,24 +250,29 @@ struct HMCS {
             prevStatus = SWAP(&(I->status[0]), ABORTED);
             if(prevStatus < ACQUIRE_PARENT){
                 I->status[0] = prevStatus;
+#ifdef DEBUG
                 assert(I->status[0] != ACQUIRE_PARENT);
 
                 if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                     handle_error("mprotect");
+#endif
                 return NULL; // got lock;
             }
             if(prevStatus == ACQUIRE_PARENT) {
                 I->status[0] = COHORT_START;
+#ifdef DEBUG
                 if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                     handle_error("mprotect");
+#endif
                 QNode * ret = HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
-                
+#ifdef DEBUG
                 if(ret) {
                     if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
                         handle_error("mprotect");
                 }
                 
                 assert(I->status[0] == COHORT_START);
+#endif
                 return ret;
             } else {
                 return I;
@@ -230,8 +280,8 @@ struct HMCS {
         }
     }
     
-    static inline bool AcquireWraper(HNode * L, QNode *I){
-        QNode * abortedNode = HMCS<level>::Acquire(L, I, 0);
+    static inline bool AcquireWraper(HNode * L, QNode *I, uint64_t patience=UINT64_MAX){
+        QNode * abortedNode = HMCS<level>::Acquire(L, I, patience);
         if (abortedNode) {
             HandleVerticalAbortion(L, I, abortedNode);
             return false;
@@ -242,20 +292,30 @@ struct HMCS {
 
     
     static inline void HandleHorizontalPassing(HNode * L, QNode *I, uint64_t value){
+#ifdef DEBUG
         assert(value < ACQUIRE_PARENT);
-        uint64_t oldStatus = I->status[0]; // TO DO Delete me
+        uint64_t oldStatus = AtomicLoad(&(I->status[0]));//I->status[0]; // TO DO Delete me
+#endif
         if (I->next) {
             uint64_t prevStatus = SWAP(&(I->next->status[0]), value);
             if(prevStatus == ABORTED){
                 HandleHorizontalPassing(L, I->next, value);
             }
-            assert(I->status[0] == oldStatus || I->status[0] == WAIT);
+            
+#ifdef DEBUG
+            uint64_t tmp = AtomicLoad(&(I->status[0]));
+            assert(tmp == oldStatus || tmp == WAIT /* somebody waiting */ || tmp == ACQUIRE_PARENT /* abort in waiting for READY_TO_USE */);
+#endif
             //I->status[0] = READY_TO_USE;
             AtomicWrite(&(I->status[0]),READY_TO_USE);
         } else {
             HMCS<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
-            assert(I->status[0] == oldStatus || I->status[0] == WAIT);
+            
+#ifdef DEBUG
+            uint64_t tmp = AtomicLoad(&(I->status[0]));
+            assert(tmp == oldStatus || tmp == WAIT /* somebody waiting */ || tmp == ACQUIRE_PARENT /* abort in waiting for READY_TO_USE */);
+#endif
             // Tap successor at this level and ask to spin acquire next level lock
             DealWithRestOfHorizontal(L, I);
         }
@@ -265,27 +325,29 @@ struct HMCS {
     inline static bool Release(HNode * L, QNode *I) {
 
         uint64_t curCount = I->status[0];
-        assert(curCount >= COHORT_START && curCount <= 10000);
+#ifdef DEBUG
+        assert(curCount >= COHORT_START && curCount <= L->GetThreshold());
+#endif
         QNode * succ;
         
         // Lower level releases
         if(curCount == L->GetThreshold()) {
             HMCS<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
-            
+#ifdef DEBUG
             if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
                 handle_error("mprotect");
-            
+#endif
             // Tap successor at this level and ask to spin acquire next level lock
             DealWithRestOfHorizontal(L, I);
             
             return true; // Released
         }
-        
+#ifdef DEBUG
         if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
             handle_error("mprotect");
-        
         assert(curCount < ACQUIRE_PARENT);
+#endif
         HandleHorizontalPassing(L, I, curCount + 1);
         return true; // Released
     }
@@ -307,10 +369,33 @@ struct HMCS<1> {
             case READY_TO_USE: break;
             case WAIT: break;
             case UNLOCKED:
-                while(I->status[0] != READY_TO_USE);
+                //while(I->status[0] != READY_TO_USE); No unbounded wait
+                uint64_t statusAtDefaultCase;
+                for(;patience > 0; patience--) {
+                    if(AtomicLoad(&(I->status[0])) == READY_TO_USE){
+                        goto USE_QNODE;
+                    }
+                }
+                // Abort
+                // TODO use CAS
+                // Swap  UNLOCKED, so that next time when we want to use the node, we go through the UNLOCKED case unless it is updated to READY_TO_USE
+                statusAtDefaultCase = SWAP(&(I->status[0]), UNLOCKED);
+                
+                if (statusAtDefaultCase != READY_TO_USE) {
+#ifdef DEBUG
+                    assert(statusAtDefaultCase == WAIT);
+#endif
+                    // behavior is analogous to an ABORT, except that we don't set status = ABORTED
+                    // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
+                    return I;
+                } // else I is READY_TO_USE fall through to USE_QNODE
+                // set I->status[0 back to READY_TO_USE..
+                AtomicWrite(&(I->status[0]), READY_TO_USE);
+                break;
             default:assert(0 && "Should never reach here");
         }
         
+    USE_QNODE:
         I->next = NULL;
         // Updates must happen before swap
         COMMIT_ALL_WRITES();
@@ -323,10 +408,10 @@ struct HMCS<1> {
             for(;patience > 0;patience--){
                 uint64_t myStatus = I->status[0];
                 if(myStatus == UNLOCKED) {
-                    
+#ifdef DEBUG
                     if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                         handle_error("mprotect");
-                    
+#endif
                     return NULL; // got lock;
                 }
             }
@@ -334,8 +419,10 @@ struct HMCS<1> {
             uint64_t prevStatus = SWAP(&(I->status[0]), ABORTED);
             if(prevStatus == UNLOCKED) {
                 I->status[0] = UNLOCKED;
+#ifdef DEBUG
                 if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
                     handle_error("mprotect");
+#endif
                 return NULL; // got lock;
             }
             return I;
@@ -343,13 +430,15 @@ struct HMCS<1> {
             I->status[0] = UNLOCKED;
         }
         
+#ifdef DEBUG
         if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ))
             handle_error("mprotect");
+#endif
         return NULL;
     }
 
-    static inline bool AcquireWraper(HNode * L, QNode *I){
-        QNode * abortedNode = Acquire(L, I, 0);
+    static inline bool AcquireWraper(HNode * L, QNode *I, uint64_t patience=UINT64_MAX){
+        QNode * abortedNode = Acquire(L, I, patience);
         if (abortedNode) {
             return false;
         }
@@ -386,12 +475,11 @@ struct HMCS<1> {
     
     
     inline static bool Release(HNode * L, QNode *I) {
-
-    
+#ifdef DEBUG
         assert(I->status[0] == UNLOCKED);
         if(mprotect((void*)(I->status), PAGE_SIZE, PROT_READ|PROT_WRITE))
             handle_error("mprotect");
-
+#endif
         HandleHorizontalPassing(L, I);
         return true;
     }
