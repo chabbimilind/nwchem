@@ -30,6 +30,7 @@
 #define READY_TO_USE (0xdffffffffffffffd)
 #define MOVED_ON (QNode *)(0xdffffffffffffffd)
 #define ACQUIRE_PARENT (0xcffffffffffffffc)
+#define CANT_WAIT_FOR_NEXT (QNode *)(0x1)
 
 #define COHORT_START (0x1)
 #define ALARM_TIME (3 * 60)
