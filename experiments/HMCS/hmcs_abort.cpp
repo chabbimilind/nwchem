@@ -88,7 +88,7 @@ static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
         }
     }
     assert(I->status == oldStatus || I->status == WAIT);
-    I->status = READY_TO_USE;
+    ATOMIC_WRITE(&(I->status), READY_TO_USE, uint64_t);
 }
 
 static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode){
@@ -99,14 +99,13 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
             HandleHorizontalAbortion(L, I->next, abortedNode);
         }
         assert(I->status == oldStatus || I->status == WAIT);
-        I->status = READY_TO_USE;
+        ATOMIC_WRITE(&(I->status), READY_TO_USE, uint64_t);
     } else {
         HandleVerticalAbortion(L->parent, &(L->node), abortedNode);
         assert(I->status == oldStatus || I->status == WAIT);
         // back from vertical abortion
         DealWithRestOfHorizontal(L, I);
     }
-    assert(I->status == READY_TO_USE || I->status == WAIT);
 }
 
 
@@ -205,7 +204,7 @@ struct HMCS {
                 HandleHorizontalPassing(L, I->next, value);
             }
             assert(I->status == oldStatus || I->status == WAIT);
-            I->status = READY_TO_USE;
+            ATOMIC_WRITE(&(I->status), READY_TO_USE, uint64_t);
         } else {
             HMCS<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
@@ -246,7 +245,8 @@ struct HMCS {
                 }
                 // pass it to peers
                 // Tap successor at this level
-                succ->status=  COHORT_START; /* give one full chunk */
+                //succ->status=  COHORT_START; /* give one full chunk */
+                ATOMIC_WRITE(&(succ->status), COHORT_START, uint64_t);
                 return true; //released
             }
 #endif            
@@ -261,7 +261,7 @@ struct HMCS {
             return true; // Released
         }
         
-        
+        assert(curCount < ACQUIRE_PARENT);
         HandleHorizontalPassing(L, I, curCount + 1);
         return true; // Released
     }
@@ -280,8 +280,11 @@ struct HMCS<1> {
         QNode * pred;
         switch(prevStatus){
             case ABORTED: goto START_SPIN;
+            case READY_TO_USE: break;
+            case WAIT: break;
             case UNLOCKED:
                 while(I->status != READY_TO_USE);
+            default:assert(0 && "Should never reach here");
         }
         
         I->next = NULL;
@@ -307,6 +310,13 @@ struct HMCS<1> {
             }
             return I;
         }
+        /*
+         Not needed. It is a deadwrite since the releasing thread will overwrite it with READY_TO_USE.
+         else {
+            I->status = UNLOCKED;
+         }
+         */
+        
         return NULL;
     }
 
@@ -328,7 +338,7 @@ struct HMCS<1> {
             }
         }
         // Reset status
-        I->status = READY_TO_USE;
+        ATOMIC_WRITE(&(I->status), READY_TO_USE, uint64_t);
     }
     
     static inline void HandleHorizontalPassing(HNode * L, QNode *I){
@@ -338,7 +348,7 @@ struct HMCS<1> {
                 HandleHorizontalPassing(L, I->next);
             }
             // Reset status
-            I->status = READY_TO_USE;
+            ATOMIC_WRITE(&(I->status), READY_TO_USE, uint64_t);
         } else {
             DealWithRestOfLevel1(L, I);
         }
