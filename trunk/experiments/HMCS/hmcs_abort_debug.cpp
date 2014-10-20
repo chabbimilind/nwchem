@@ -13,7 +13,7 @@
 #define handle_error(msg) \
 do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
-#define DEBUG
+//#define DEBUG
 
 
 struct QNode{
@@ -688,7 +688,7 @@ static void CreateTimer(){
 }
 
 #define RUN_LOOP(nIter, level)       do{for(myIters = 0; (myIters < nIter) && (!gTimedOut); myIters++) { \
-                                    if (HMCS<level>::AcquireWraper(hmcs->parent, &(hmcs->node)) == true ) { \
+                                    if (HMCS<level>::AcquireWraper(hmcs->parent, &(hmcs->node), 0) == true ) { \
                                     CriticalSection();\
                                     ReleaseWrapper(hmcs->parent, &(hmcs->node), level);}\
                                     OutsideCriticalSection(& randSeedbuffer);\
