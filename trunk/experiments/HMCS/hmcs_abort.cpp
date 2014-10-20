@@ -81,6 +81,7 @@ static inline void HandleVerticalAbortion(HNode * L, QNode *I, QNode * abortedNo
     HandleHorizontalAbortion(L, I, abortedNode);
 }
 
+#if 0
 static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
     if(!BOOL_CAS(&(L->lock), I, NULL)) {
         // No unbounded wait...
@@ -104,7 +105,6 @@ static inline void DealWithRestOfHorizontal(HNode * L, QNode *I){
     //I->status = READY_TO_USE;
     AtomicWrite(&(I->status),READY_TO_USE);
 }
-
 static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode){
     if (I->HasValidSuccessor()) {
         uint64_t prevStatus = SWAP(&(I->next->status), ACQUIRE_PARENT);
@@ -119,6 +119,77 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
         DealWithRestOfHorizontal(L, I);
     }
 }
+#else
+
+static inline void DealWithRestOfHorizontal(HNode * & L, QNode * &I, QNode * & prev){
+    while (1) {
+        if(!BOOL_CAS(&(L->lock), I, NULL)) {
+            // No unbounded wait...
+            // while (I->next == NULL) ; // spin
+            // if it is a node owned by me (frontier) and we couldn't wait for the successor, we need to set our status to "ACQUIRE_PARENT" so that next time when we come here
+            // we wait till the status is READY_TO_USE
+            // If CAS failes, we will set it to READY_TO_USE ourselves.
+            if(AtomicLoad(&(I->status)) == COHORT_START)
+                AtomicWrite(&(I->status), ACQUIRE_PARENT);
+            
+            if (!BOOL_CAS(&(I->next), NULL, CANT_WAIT_FOR_NEXT)) {
+                uint64_t prevStatus = SWAP(&(I->next->status), ACQUIRE_PARENT);
+                if(prevStatus == ABORTED) {
+                    QNode * succ = I->next;
+                    I->next = prev;
+                    prev = I;
+                    I = succ;
+                } else {
+                    AtomicWrite(&(I->status),READY_TO_USE);
+                    return;
+                }
+            } else {
+                return;
+                /*
+                 // Don't do AtomicWrite(&(I->status),READY_TO_USE); Successor is responsible for doing it
+                 */
+            }
+        } else {
+            AtomicWrite(&(I->status),READY_TO_USE);
+            return;
+        }
+    }
+    assert(0 && "Should never reach here");
+}
+
+
+static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode){
+    QNode * prev = NULL;
+    while(1) {
+        if (I->HasValidSuccessor()) {
+            uint64_t prevStatus = SWAP(&(I->next->status), ACQUIRE_PARENT);
+            if(prevStatus == ABORTED){
+                QNode * succ = I->next;
+                I->next = prev;
+                prev = I;
+                I = succ;
+            } else {
+                AtomicWrite(&(I->status),READY_TO_USE);
+                break;
+            }
+        } else {
+            HandleVerticalAbortion(L->parent, &(L->node), abortedNode);
+            // back from vertical abortion
+            DealWithRestOfHorizontal(L, I, prev);
+            break;
+        }
+    }
+    
+CLEANUP_REVERSE_CHAIN:
+    while (prev) {
+        QNode * pprev = prev->next; /* here next is actually the prev */
+        //I->status = READY_TO_USE;
+        AtomicWrite(&(prev->status),READY_TO_USE);
+        prev = pprev;
+    }
+}
+#endif
+
 
 template<int level>
 struct HMCS {
@@ -216,18 +287,33 @@ struct HMCS {
     }
     
     static inline void HandleHorizontalPassing(HNode * L, QNode *I, uint64_t value){
-        if (I->HasValidSuccessor()) {
-            uint64_t prevStatus = SWAP(&(I->next->status), value);
-            if(prevStatus == ABORTED){
-                HandleHorizontalPassing(L, I->next, value);
+        QNode * prev = NULL;
+        while(1) {
+            if (I->HasValidSuccessor()) {
+                uint64_t prevStatus = SWAP(&(I->next->status), value);
+                if(prevStatus == ABORTED){
+                    QNode * succ = I->next;
+                    I->next = prev;
+                    prev = I;
+                    I = succ;
+                } else {
+                    AtomicWrite(&(I->status),READY_TO_USE);
+                    break;
+                }
+            } else {
+                HMCS<level - 1>::Release(L->parent, &(L->node));
+                COMMIT_ALL_WRITES();
+                // back from vertical passing
+                DealWithRestOfHorizontal(L, I, prev);
+                break;
             }
+        }
+    CLEANUP_REVERSE_CHAIN:
+        while (prev) {
+            QNode * pprev = prev->next; /* here next is actually the prev */
             //I->status = READY_TO_USE;
-            AtomicWrite(&(I->status),READY_TO_USE);
-        } else {
-            HMCS<level - 1>::Release(L->parent, &(L->node));
-            COMMIT_ALL_WRITES();
-            // Tap successor at this level and ask to spin acquire next level lock
-            DealWithRestOfHorizontal(L, I);
+            AtomicWrite(&(prev->status),READY_TO_USE);
+            prev = pprev;
         }
     }
     
@@ -240,7 +326,15 @@ struct HMCS {
             HMCS<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
             // Tap successor at this level and ask to spin acquire next level lock
-            DealWithRestOfHorizontal(L, I);
+            QNode * prev = NULL;
+            DealWithRestOfHorizontal(L, I, prev);
+            while (prev) {
+                QNode * pprev = prev->next; /* here next is actually the prev */
+                //I->status = READY_TO_USE;
+                AtomicWrite(&(prev->status),READY_TO_USE);
+                prev = pprev;
+            }
+
             return true; // Released
         }
         HandleHorizontalPassing(L, I, curCount + 1);
