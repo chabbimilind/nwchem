@@ -4,7 +4,7 @@
 
 #define THRESHOLD (3)
 
-#define MAX_THREADS (3)
+#define MAX_THREADS (4)
 
 #define NONE (255)
 
@@ -15,8 +15,8 @@
 #define WAIT (254)
 #define ABORTED (253)
 #define READY_TO_USE (252)
-#define ACQUIRE_PARENT (251)
-#define CANT_WAIT_FOR_NEXT (254)
+#define ACQUIRE_PARENT (250)
+#define CANT_WAIT_FOR_NEXT (251)
 
 #define COHORT_START (1)
 #define ALARM_TIME (3 * 60)
@@ -31,9 +31,9 @@ byte statusL1[MAX_L1_THREADS];
 byte L1;
 #define MY_L1_STATUS statusL1[myL1Id]
 #define MY_L1_NEXT nextL1[myL1Id]
-#define L1_STATUS(id) statusL1[id]
-#define L1_NEXT(id) nextL1[id]
-#define HAS_VALID_L1_SUCC(id) nextL1[id] < CANT_WAIT_FOR_NEXT
+#define L1_STATUS(id_1) statusL1[id_1]
+#define L1_NEXT(id_2) nextL1[id_2]
+#define HAS_VALID_L1_SUCC(id_3) nextL1[id_3] < MAX_L1_THREADS
 
 
 byte nextL2[MAX_L2_THREADS];
@@ -41,9 +41,9 @@ byte statusL2[MAX_L2_THREADS];
 byte L2;
 #define MY_L2_STATUS statusL2[myL2Id]
 #define MY_L2_NEXT nextL2[myL2Id]
-#define L2_STATUS(id) statusL2[id]
-#define L2_NEXT(id) nextL2[id]
-#define HAS_VALID_L2_SUCC(id) nextL2[id] < CANT_WAIT_FOR_NEXT
+#define L2_STATUS(id_4) statusL2[id_4]
+#define L2_NEXT(id_5) nextL2[id_5]
+#define HAS_VALID_L2_SUCC(id_6) nextL2[id_6] < MAX_L2_THREADS
 
 
 byte nextL3[MAX_L3_THREADS];
@@ -51,40 +51,51 @@ byte statusL3[MAX_L3_THREADS];
 byte L3;
 #define MY_L3_STATUS statusL3[myL3Id]
 #define MY_L3_NEXT nextL3[myL3Id]
-#define L3_STATUS(id) statusL3[id]
-#define L3_NEXT(id) nextL3[id]
-#define HAS_VALID_L3_SUCC(id) nextL3[id] < CANT_WAIT_FOR_NEXT
+#define L3_STATUS(id_7) statusL3[id_7]
+#define L3_NEXT(id_8) nextL3[id_8]
+#define HAS_VALID_L3_SUCC(id_9) nextL3[id_9] < MAX_L3_THREADS
 
+/*
+#define MY_L1_NODE_ID(id) (id <= 2 -> id : 0)
 
-#define MY_L1_NODE_ID(id) (id <= 2 -> id : 0 /* just to eliminate error */)
-
-#define MY_L2_NODE_ID(id) (id <= 2 -> 0 : (id <= 4 -> id - 2 : 0 /* just to eliminate error */) )
+#define MY_L2_NODE_ID(id) (id <= 2 -> 0 : (id <= 4 -> id - 2 : 0) )
 
 #define MY_L3_NODE_ID(id) (id <= 4 -> 0 : id - 4)
 
+*/
 
 
-#define SWAP(loc, var, val) d_step{var=loc; loc=val;}
+#define MY_L1_NODE_ID(id_123) (0)
+
+#define MY_L2_NODE_ID(id_456) (id_456 <= 2 -> id_456: 0)
+
+#define MY_L3_NODE_ID(id_768) (id_768 <= 2 -> 0 : id_768 - 2 )
 
 
-#define CAS(loc, oldVal, newVal, retOld) d_step{ \
+/*
+#define MY_L3_NODE_ID(id) (id)
+*/
+
+#define SWAP(loc_SWAP, var_SWAP, val_SWAP) d_step{var_SWAP=loc_SWAP; loc_SWAP=val_SWAP;}
+
+
+#define CAS(loc_CAS, oldVal_CAS, newVal_CAS, retOld_CAS) d_step{ \
                           if \
-                            :: loc == oldVal -> retOld = loc; loc = newVal;\
-                            :: else -> retOld = loc;\
+                            :: loc_CAS == oldVal_CAS -> retOld_CAS = loc_CAS; loc_CAS = newVal_CAS;\
+                            :: else -> retOld_CAS = loc_CAS;\
                           fi\
                         }
 
-#define BOOL_CAS(loc, oldVal, newVal, retOld) d_step{ \
+#define BOOL_CAS(loc_BCAS, oldVal_BCAS, newVal_BCAS, retOld_BCAS) d_step{ \
                           if \
-                            :: loc == oldVal -> retOld = true; loc = newVal;\
-                            :: else -> retOld = false;\
+                            :: loc_BCAS == oldVal_BCAS -> retOld_BCAS = true; loc_BCAS = newVal_BCAS;\
+                            :: else -> retOld_BCAS = false;\
                           fi \
                         }
 
 
-inline AcquireL3(abortedLevel)
+inline AcquireL3(abortedLevel_Acq_L3)
 {
-    byte myL3Id = MY_L3_NODE_ID(_pid);
     byte prevStatus_Acq_L3;
     byte pred_Acq_L3;
     byte predStat_Acq_L3;
@@ -106,7 +117,7 @@ inline AcquireL3(abortedLevel)
         CAS(MY_L3_STATUS, WAIT, UNLOCKED, tmpStatus);
 
         if
-            :: tmpStatus != READY_TO_USE -> atomic{ abortedLevel = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
+            :: tmpStatus != READY_TO_USE -> atomic{ abortedLevel_Acq_L3 = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
             :: else -> skip; 
         fi
 
@@ -121,7 +132,7 @@ inline AcquireL3(abortedLevel)
 
         :: pred_Acq_L3 != NONE -> 
                     /* Avoid unbounded wait for I->next */
-            SWAP(L3_NEXT(pred_Acq_L3), predStat_Acq_L3, _pid);
+            SWAP(L3_NEXT(pred_Acq_L3), predStat_Acq_L3, myL3Id);
             if
                 :: predStat_Acq_L3 == CANT_WAIT_FOR_NEXT ->
                         atomic{ L3_STATUS(pred_Acq_L3)= READY_TO_USE;
@@ -133,7 +144,7 @@ inline AcquireL3(abortedLevel)
  
                 /* Not needed in spin 
             if
-                :: MY_L3_STATUS == UNLOCKED -> atomic { abortedLevel = NONE; goto DONE_ACQUIRE_L3;}
+                :: MY_L3_STATUS == UNLOCKED -> atomic { abortedLevel_Acq_L3 = NONE; goto DONE_ACQUIRE_L3;}
                 :: else -> skip;
             fi  */
 
@@ -143,7 +154,7 @@ inline AcquireL3(abortedLevel)
                 :: else -> skip;
             fi
 
-            atomic { abortedLevel = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
+            atomic { abortedLevel_Acq_L3 = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
 
         :: else -> goto SET_AND_FINISH_ACQUIRE_L3;
     fi
@@ -152,18 +163,17 @@ inline AcquireL3(abortedLevel)
 SET_AND_FINISH_ACQUIRE_L3: skip;
 d_step {
     MY_L3_STATUS = UNLOCKED;
-    abortedLevel = NONE;
+    abortedLevel_Acq_L3 = NONE;
 }
 DONE_ACQUIRE_L3: skip;
 }
 
 
-inline AcquireL2(abortedLevel)
+inline AcquireL2(abortedLevel_Acq_L2)
 {
-    byte myL2Id = MY_L2_NODE_ID(_pid);
     byte prevStatus_Acq_L2;
     byte pred_Acq_L2;
-    byte predStat_Acq_L2;
+    byte predNext_Acq_L2;
     byte tmpStatus_Acq_L2;
     SWAP(MY_L2_STATUS, prevStatus_Acq_L2, WAIT);
 
@@ -174,9 +184,9 @@ inline AcquireL2(abortedLevel)
         :: prevStatus_Acq_L2 == READY_TO_USE -> skip;
         :: else ->
             /*while(I->status != READY_TO_USE); No unbounded wait*/
-            CAS(MY_L2_STATUS, WAIT, UNLOCKED, tmpStatus_Acq_L2);
+            CAS(MY_L2_STATUS, WAIT, ACQUIRE_PARENT, tmpStatus_Acq_L2);
             if
-                :: tmpStatus_Acq_L2 != READY_TO_USE -> atomic{ abortedLevel = 1 /* L2 */; goto DONE_ACQUIRE_L2;}
+                :: tmpStatus_Acq_L2 != READY_TO_USE -> atomic{ abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;}
                 :: else -> skip;
             fi
     fi
@@ -190,17 +200,17 @@ inline AcquireL2(abortedLevel)
         :: pred_Acq_L2 == NONE ->
     GOT_LOCK_L2:
             MY_L2_STATUS = COHORT_START;
-            AcquireL3(abortedLevel);
+            AcquireL3(abortedLevel_Acq_L2);
             goto DONE_ACQUIRE_L2;
 
         :: else ->
             /* Avoid unbounded wait for I->next */
-            SWAP(L2_NEXT(pred_Acq_L2), predStat_Acq_L2, myL2Id);
+            SWAP(L2_NEXT(pred_Acq_L2), predNext_Acq_L2, myL2Id);
             if
-                :: predStat_Acq_L2 == CANT_WAIT_FOR_NEXT ->
-                    statusL2[pred_Acq_L2]= READY_TO_USE;
+                :: predNext_Acq_L2 == CANT_WAIT_FOR_NEXT ->
+                    L2_STATUS(pred_Acq_L2)= READY_TO_USE;
                     MY_L2_STATUS = COHORT_START;
-                    AcquireL3(abortedLevel);
+                    AcquireL3(abortedLevel_Acq_L2);
                     goto DONE_ACQUIRE_L2;
                 :: else -> skip
             fi
@@ -210,24 +220,23 @@ inline AcquireL2(abortedLevel)
             SWAP(MY_L2_STATUS, prevStatus_Acq_L2 , ABORTED);
             if
                 :: prevStatus_Acq_L2 < ACQUIRE_PARENT -> MY_L2_STATUS  = prevStatus_Acq_L2 ; goto SET_AND_FINISH_ACQUIRE_L2;
-                :: prevStatus_Acq_L2 == ACQUIRE_PARENT -> MY_L2_STATUS  = COHORT_START ;  AcquireL3(abortedLevel); goto DONE_ACQUIRE_L2;
-                :: else -> atomic { abortedLevel = 1 /* L2 */; goto DONE_ACQUIRE_L2;};
+                :: prevStatus_Acq_L2 == ACQUIRE_PARENT -> MY_L2_STATUS  = COHORT_START ;  AcquireL3(abortedLevel_Acq_L2); goto DONE_ACQUIRE_L2;
+                :: else -> atomic { abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;};
             fi
     fi
 
 
     SET_AND_FINISH_ACQUIRE_L2: skip;
     d_step {
-        abortedLevel = NONE;
+        abortedLevel_Acq_L2 = NONE;
     }
     DONE_ACQUIRE_L2: skip;
 }
 
 
 
-inline AcquireL1(abortedLevel)
+inline AcquireL1(abortedLevel_Acq_L1)
 {
-    byte myL1Id = MY_L1_NODE_ID(_pid);
     byte prevStatus_Acq_L1;
     byte pred_Acq_L1;
     byte predStat_Acq_L1;
@@ -242,10 +251,10 @@ inline AcquireL1(abortedLevel)
         :: else ->
                 /*while(I->status != READY_TO_USE); No unbounded wait*/
 
-            CAS(MY_L1_STATUS, WAIT, UNLOCKED, tmpStatus_Acq_L1);
+            CAS(MY_L1_STATUS, WAIT, ACQUIRE_PARENT, tmpStatus_Acq_L1);
 
             if
-                :: tmpStatus_Acq_L1 != READY_TO_USE -> atomic{ abortedLevel = 0 /* L1 */; goto DONE_ACQUIRE_L1;}
+                :: tmpStatus_Acq_L1 != READY_TO_USE -> atomic{ abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;}
                 :: else -> skip;
             fi
     fi
@@ -259,7 +268,7 @@ inline AcquireL1(abortedLevel)
         :: pred_Acq_L1 == NONE ->
 GOT_LOCK_L1:        
             MY_L1_STATUS = COHORT_START;
-            AcquireL2(abortedLevel);
+            AcquireL2(abortedLevel_Acq_L1);
             goto DONE_ACQUIRE_L1;
 
         :: else ->
@@ -267,9 +276,9 @@ GOT_LOCK_L1:
             SWAP(L1_NEXT(pred_Acq_L1), predStat_Acq_L1, myL1Id);
             if
                 :: predStat_Acq_L1 == CANT_WAIT_FOR_NEXT ->
-                    statusL1[pred_Acq_L1]= READY_TO_USE;
+                    L1_STATUS(pred_Acq_L1)= READY_TO_USE;
                     MY_L1_STATUS = COHORT_START;
-                    AcquireL2(abortedLevel);
+                    AcquireL2(abortedLevel_Acq_L1);
                     goto DONE_ACQUIRE_L1;
                 :: else -> skip
             fi
@@ -279,124 +288,125 @@ START_SPIN_L1: skip;
             SWAP(MY_L1_STATUS, prevStatus_Acq_L1 , ABORTED);
             if
                 :: prevStatus_Acq_L1 < ACQUIRE_PARENT -> MY_L1_STATUS  = prevStatus_Acq_L1 ; goto SET_AND_FINISH_ACQUIRE_L1;
-                :: prevStatus_Acq_L1 == ACQUIRE_PARENT -> MY_L1_STATUS  = COHORT_START ;  AcquireL2(abortedLevel); goto DONE_ACQUIRE_L1;
-                :: else -> atomic { abortedLevel = 0 /* L1 */; goto DONE_ACQUIRE_L1;};
+                :: prevStatus_Acq_L1 == ACQUIRE_PARENT -> MY_L1_STATUS  = COHORT_START ;  AcquireL2(abortedLevel_Acq_L1); goto DONE_ACQUIRE_L1;
+                :: else -> atomic { abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;};
             fi
     fi
 
 
     SET_AND_FINISH_ACQUIRE_L1: skip;
     d_step {
-            abortedLevel = NONE; 
+            abortedLevel_Acq_L1 = NONE; 
     }
     DONE_ACQUIRE_L1: skip;
 }
 
 
 
-inline DealWithRestOfL2(me /* destroyed */, prev /* destroyed and used in caller */){
-    byte retOld_DWR_L2;
+inline DealWithRestOfL2(me_DWR_L2 /* destroyed */, prev_DWR_L2 /* destroyed and used in caller */){
+    bool retOld_DWR_L2;
     byte tmpStatus_DWR_L2;
     byte tmpSucc_DWR_L2;
     do
       :: else ->
-            BOOL_CAS(L2, me, NONE, retOld_DWR_L2);
+            BOOL_CAS(L2, me_DWR_L2, NONE, retOld_DWR_L2);
 
             if 
                 :: retOld_DWR_L2 == false ->
 
                     if
-                        :: L2_STATUS(me) == COHORT_START -> L2_STATUS(me) = ACQUIRE_PARENT;
-                        :: else -> skip;
+                         :: L2_STATUS(me_DWR_L2) == COHORT_START ->  L2_STATUS(me_DWR_L2) = ACQUIRE_PARENT;
+                         :: else -> skip; 
                     fi
 
-                    BOOL_CAS(L2_NEXT(me), NONE, CANT_WAIT_FOR_NEXT, retOld_DWR_L2); 
+                    BOOL_CAS(L2_NEXT(me_DWR_L2), NONE, CANT_WAIT_FOR_NEXT, retOld_DWR_L2); 
                     if 
                         :: retOld_DWR_L2 == false ->
-                            SWAP(L2_STATUS(L2_NEXT(me)), tmpStatus_DWR_L2, ACQUIRE_PARENT);
+                            SWAP(L2_STATUS(L2_NEXT(me_DWR_L2)), tmpStatus_DWR_L2, ACQUIRE_PARENT);
                             if
                                 :: tmpStatus_DWR_L2 == ABORTED ->
-                                    tmpSucc_DWR_L2 = L2_NEXT(me);
+                                    tmpSucc_DWR_L2 = L2_NEXT(me_DWR_L2);
                                     d_step{
-                                        L2_NEXT(me) = prev;
-                                        prev = me;
-                                        me =     tmpSucc_DWR_L2;
+                                        L2_NEXT(me_DWR_L2) = prev_DWR_L2;
+                                        prev_DWR_L2 = me_DWR_L2;
+                                        me_DWR_L2 =     tmpSucc_DWR_L2;
                                     }
-                                :: else -> atomic {L2_STATUS(me) = READY_TO_USE; break;}
+                                :: else -> atomic {L2_STATUS(me_DWR_L2) = READY_TO_USE; break;}
                             fi
-                :: else -> break;
+                        :: else -> break;
+                    fi
+                :: else -> atomic {L2_STATUS(me_DWR_L2) = READY_TO_USE; break;}
             fi
-        :: else -> atomic {L2_STATUS(me) = READY_TO_USE; break;}
-       fi
     od
 }
 
 
-inline DealWithRestOfL1(me /* destroyed */, prev /* destroyed and used in caller */){
-    byte retOld_DWR_L1;
+inline DealWithRestOfL1(me_DWR_L1 /* destroyed */, prev_DWR_L1 /* destroyed and used in caller */){
+    bool retOld_DWR_L1;
     byte tmpStatus_DWR_L1;
     byte tmpSucc_DWR_L1;
     do
       :: else ->
-            BOOL_CAS(L1, me, NONE, retOld_DWR_L1);
+            BOOL_CAS(L1, me_DWR_L1, NONE, retOld_DWR_L1);
 
             if 
                 :: retOld_DWR_L1 == false ->
 
                     if
-                        :: L1_STATUS(me) == COHORT_START -> L1_STATUS(me) = ACQUIRE_PARENT;
-                        :: else -> skip;
+                         :: L1_STATUS(me_DWR_L1) == COHORT_START ->  L1_STATUS(me_DWR_L1) = ACQUIRE_PARENT;
+                         :: else -> skip; 
                     fi
 
-                    BOOL_CAS(L1_NEXT(me), NONE, CANT_WAIT_FOR_NEXT, retOld_DWR_L1); 
+
+                    BOOL_CAS(L1_NEXT(me_DWR_L1), NONE, CANT_WAIT_FOR_NEXT, retOld_DWR_L1); 
                     if 
                         :: retOld_DWR_L1 == false ->
-                            SWAP(L1_STATUS(L1_NEXT(me)), tmpStatus_DWR_L1, ACQUIRE_PARENT);
+                            SWAP(L1_STATUS(L1_NEXT(me_DWR_L1)), tmpStatus_DWR_L1, ACQUIRE_PARENT);
                             if
                                 :: tmpStatus_DWR_L1 == ABORTED ->
-                                    tmpSucc_DWR_L1 = L1_NEXT(me);
+                                    tmpSucc_DWR_L1 = L1_NEXT(me_DWR_L1);
                                     d_step{
-                                        L1_NEXT(me) = prev;
-                                        prev = me;
-                                        me =     tmpSucc_DWR_L1;
+                                        L1_NEXT(me_DWR_L1) = prev_DWR_L1;
+                                        prev_DWR_L1 = me_DWR_L1;
+                                        me_DWR_L1 =     tmpSucc_DWR_L1;
                                     }
-                                :: else -> atomic {L1_STATUS(me) = READY_TO_USE; break;}
+                                :: else -> atomic {L1_STATUS(me_DWR_L1) = READY_TO_USE; break;}
                             fi
                 :: else -> break;
             fi
-        :: else -> atomic {L1_STATUS(me) = READY_TO_USE; break;}
+        :: else -> atomic {L1_STATUS(me_DWR_L1) = READY_TO_USE; break;}
        fi
     od
 }
 
-inline CleanupReverseChainL1(node, pprev_CRC_L1 /* local var */){
+inline CleanupReverseChainL1(node_CRC_L1 /* destroyed */, pprev_CRC_L1 /* local var */){
     do
-    :: node != NONE ->
-        pprev_CRC_L1 = L1_NEXT(node); 
+    :: node_CRC_L1 != NONE ->
+        pprev_CRC_L1 = L1_NEXT(node_CRC_L1); 
         d_step{
-            L1_STATUS(node) = READY_TO_USE;
-            node = pprev_CRC_L1;
+            L1_STATUS(node_CRC_L1) = READY_TO_USE;
+            node_CRC_L1 = pprev_CRC_L1;
         }
     :: else -> break;
     od
 }
 
-inline CleanupReverseChainL2(node, pprev_CRC_L2 /* local var */){
+inline CleanupReverseChainL2(node_CRC_L2 /* destroyed */, pprev_CRC_L2 /* local var */){
     do
-        :: node != NONE ->
-            pprev_CRC_L2 = L2_NEXT(node);
+        :: node_CRC_L2 != NONE ->
+            pprev_CRC_L2 = L2_NEXT(node_CRC_L2);
             d_step{
-                L2_STATUS(node) = READY_TO_USE;
-                node = pprev_CRC_L2;
+                L2_STATUS(node_CRC_L2) = READY_TO_USE;
+                node_CRC_L2 = pprev_CRC_L2;
             }
         :: else -> break;
     od
 }
 
 
-inline HandleHorizontalPassingL2(value){
+inline HandleHorizontalPassingL2(value_HHP_L2 /* const */){
     byte prev_HHP_L2 = NONE;
-    byte curNode_HHP_L2 = MY_L2_NODE_ID(_pid);
+    byte curNode_HHP_L2 = myL2Id;
     byte succTmp_HHP_L2;
     byte prevStatus_HHP_L2;
 
@@ -404,7 +414,7 @@ inline HandleHorizontalPassingL2(value){
         :: else ->
             if
                 :: HAS_VALID_L2_SUCC(curNode_HHP_L2) ->
-                    SWAP(L2_STATUS(L2_NEXT(curNode_HHP_L2)), prevStatus_HHP_L2,  value);
+                    SWAP(L2_STATUS(L2_NEXT(curNode_HHP_L2)), prevStatus_HHP_L2,  value_HHP_L2);
                     if
                         :: prevStatus_HHP_L2 == ABORTED ->
                             succTmp_HHP_L2 = L2_NEXT(curNode_HHP_L2);
@@ -423,9 +433,9 @@ inline HandleHorizontalPassingL2(value){
 }
 
 
-inline HandleHorizontalPassingL1(value){
+inline HandleHorizontalPassingL1(value_HHP_L1 /* const */){
     byte prev_HHP_L1 = NONE;
-    byte curNode_HHP_L1 = MY_L1_NODE_ID(_pid);
+    byte curNode_HHP_L1 = myL1Id;
     byte succTmp_HHP_L1; 
     byte prevStatus_HHP_L1;
 
@@ -433,7 +443,7 @@ inline HandleHorizontalPassingL1(value){
         :: else ->
             if
                 :: HAS_VALID_L1_SUCC(curNode_HHP_L1) ->
-                    SWAP(L1_STATUS(L1_NEXT(curNode_HHP_L1)), prevStatus_HHP_L1,  value);
+                    SWAP(L1_STATUS(L1_NEXT(curNode_HHP_L1)), prevStatus_HHP_L1,  value_HHP_L1);
                     if
                         :: prevStatus_HHP_L1 == ABORTED ->
                             succTmp_HHP_L1 = L1_NEXT(curNode_HHP_L1);
@@ -453,18 +463,18 @@ inline HandleHorizontalPassingL1(value){
 
 
 
-inline HandleVerticalAbortionL3(abortedLevel) {
+inline HandleVerticalAbortionL3(abortedLevel_HVA_L3) {
     d_step{
         if
-            :: abortedLevel == 2 /* L3 */ -> skip;
-            :: else -> skip; /* Never happens HandleHorizontalAbortionL3(abortedLevel); */
+            :: abortedLevel_HVA_L3 == 2 /* L3 */ -> skip;
+            :: else -> skip; /* Never happens HandleHorizontalAbortionL3(abortedLevel_HVA_L3); */
         fi
     }
 }
 
-inline HandleHorizontalAbortionL2(abortedLevel){
+inline HandleHorizontalAbortionL2(abortedLevel_HHA_L2){
     byte prev_HHA_L2 = NONE;
-    byte curNode_HHA_L2 = MY_L2_NODE_ID(_pid);
+    byte curNode_HHA_L2 = myL2Id;
     byte prevStatus_HHA_L2;
     byte succTmp_HHA_L2;
     do
@@ -481,7 +491,7 @@ inline HandleHorizontalAbortionL2(abortedLevel){
                                 curNode_HHA_L2 = succTmp_HHA_L2;}
             :: else -> L2_STATUS(curNode_HHA_L2) = READY_TO_USE; break;
             fi
-                :: else ->  HandleVerticalAbortionL3(abortedLevel); DealWithRestOfL2(curNode_HHA_L2, prev_HHA_L2); break;
+                :: else ->  HandleVerticalAbortionL3(abortedLevel_HHA_L2); DealWithRestOfL2(curNode_HHA_L2, prev_HHA_L2); break;
             fi
     od
 
@@ -491,19 +501,19 @@ inline HandleHorizontalAbortionL2(abortedLevel){
 }
 
 
-inline HandleVerticalAbortionL2(abortedLevel) {
+inline HandleVerticalAbortionL2(abortedLevel_HVA_L2) {
     if
-        :: abortedLevel == 1 /* L2 */ -> skip;
-        :: else -> HandleHorizontalAbortionL2(abortedLevel);
+        :: abortedLevel_HVA_L2 == 1 /* L2 */ -> skip;
+        :: else -> HandleHorizontalAbortionL2(abortedLevel_HVA_L2);
     fi
 }
 
 
 
 
-inline HandleHorizontalAbortionL1(abortedLevel){
+inline HandleHorizontalAbortionL1(abortedLevel_HHA_L1){
     byte prev_HHA_L1 = NONE;
-    byte curNode_HHA_L1 = MY_L1_NODE_ID(_pid);
+    byte curNode_HHA_L1 = myL1Id;
     byte prevStatus_HHA_L1;
     byte succTmp_HHA_L1;
     do
@@ -520,7 +530,7 @@ inline HandleHorizontalAbortionL1(abortedLevel){
                                 curNode_HHA_L1 = succTmp_HHA_L1;}
                         :: else -> L1_STATUS(curNode_HHA_L1) = READY_TO_USE; break;
                     fi
-                :: else ->  HandleVerticalAbortionL2(abortedLevel); DealWithRestOfL1(curNode_HHA_L1, prev_HHA_L1); break;
+                :: else ->  HandleVerticalAbortionL2(abortedLevel_HHA_L1); DealWithRestOfL1(curNode_HHA_L1, prev_HHA_L1); break;
             fi
     od
 
@@ -529,22 +539,22 @@ inline HandleHorizontalAbortionL1(abortedLevel){
     CleanupReverseChainL1(prev_HHA_L1, pprev_HHA_L1);
 }
 
-inline HandleVerticalAbortionL1(abortedLevel) {
+inline HandleVerticalAbortionL1(abortedLevel_HVA_L1) {
     if
-        :: abortedLevel == 0 /* L1 */ -> skip;
-        :: else -> HandleHorizontalAbortionL1(abortedLevel);
+        :: abortedLevel_HVA_L1 == 0 /* L1 */ -> skip;
+        :: else -> HandleHorizontalAbortionL1(abortedLevel_HVA_L1);
     fi
 }
 
 inline ReleaseL2() {
-    byte myL2Id = MY_L2_NODE_ID(_pid);
     byte curCount_Rel_L2 = MY_L2_STATUS;
     byte succ_Rel_L2;
     byte prev_Rel_L2 = NONE;
+    byte copyMyL2Id = myL2Id;
 
     if
         :: curCount_Rel_L2 == THRESHOLD -> ReleaseL3(); 
-                DealWithRestOfL2(myL2Id, prev_Rel_L2);
+                DealWithRestOfL2(copyMyL2Id, prev_Rel_L2);
                 byte pprev_tmp1_HHA_L2;
                 CleanupReverseChainL2(prev_Rel_L2, pprev_tmp1_HHA_L2);
             goto DONE_L2_RELEASE;
@@ -558,14 +568,14 @@ DONE_L2_RELEASE: skip;
 
 
 inline ReleaseL1() {
-    byte myL1Id = MY_L1_NODE_ID(_pid);
     byte curCount_Rel_L1 = MY_L1_STATUS;
     byte succ_Rel_L1;
     byte prev_Rel_L1 = NONE;
+    byte copyMyL1Id = myL1Id;
 
     if
         :: curCount_Rel_L1 == THRESHOLD -> ReleaseL2(); 
-                DealWithRestOfL1(myL1Id, prev_Rel_L1);
+                DealWithRestOfL1(copyMyL1Id, prev_Rel_L1);
                 byte pprev_tmp1_HHA_L1;
                 CleanupReverseChainL1(prev_Rel_L1, pprev_tmp1_HHA_L1);
             goto DONE_L1_RELEASE;
@@ -579,93 +589,92 @@ DONE_L1_RELEASE: skip;
 
 
 
-inline AcquireWrapperL1(acquired)
+inline AcquireWrapperL1(acquired_AW_L1)
 {
-    byte abortedLevel;
-    AcquireL1(abortedLevel);
+    byte abortedLevel_AW_L1 = NONE;
+    AcquireL1(abortedLevel_AW_L1);
         if
-        :: abortedLevel==NONE -> 
+        :: abortedLevel_AW_L1==NONE -> 
             d_step{
-                acquired=true; 
+                acquired_AW_L1=true; 
                 inCS++;
             } 
             assert(inCS == 1); 
             inCS--;
-        :: else -> acquired=false;
+        :: else -> HandleVerticalAbortionL1(abortedLevel_AW_L1); acquired_AW_L1=false;
     fi
 }
 
-inline AcquireWrapperL2(acquired)
+inline AcquireWrapperL2(acquired_AW_L2)
 {
-    byte abortedLevel;
-    AcquireL2(abortedLevel);
+    byte abortedLevel_AW_L2 = NONE;
+    AcquireL2(abortedLevel_AW_L2);
         if
-        :: abortedLevel==NONE -> 
+        :: abortedLevel_AW_L2==NONE -> 
             d_step{
-                acquired=true; 
+                acquired_AW_L2=true; 
                 inCS++;
             } 
             assert(inCS == 1); 
             inCS--;
-        :: else -> acquired=false;
+        :: else -> HandleVerticalAbortionL2(abortedLevel_AW_L2); acquired_AW_L2=false;
     fi
 }
 
-inline AcquireWrapperL3(acquired)
+inline AcquireWrapperL3(acquired_AW_L3)
 {
-    byte abortedLevel;
-    AcquireL3(abortedLevel);
+    byte abortedLevel_AW_L3 = NONE;
+    AcquireL3(abortedLevel_AW_L3);
         if
-        :: abortedLevel==NONE -> 
+        :: abortedLevel_AW_L3==NONE -> 
             d_step{
-                acquired=true; 
+                acquired_AW_L3=true; 
                 inCS++;
             } 
             assert(inCS == 1); 
             inCS--;
-        :: else -> acquired=false;
+        :: else -> acquired_AW_L3=false;
     fi
 }
 
 
 
-inline DealWithRestOfLevel3(me, prev){
+inline DealWithRestOfLevel3(me_DWR_L3 /* destroyed */ , prev /* destroyed and used by caller*/ ){
 
     do
       :: else ->
-        byte retOld;
-        BOOL_CAS(L3, me, NONE, retOld);        
+        bool retOld;
+        BOOL_CAS(L3, me_DWR_L3, NONE, retOld);        
 
             if 
         :: retOld == false -> 
-                    BOOL_CAS(L3_NEXT(me), NONE, CANT_WAIT_FOR_NEXT, retOld); 
+                    BOOL_CAS(L3_NEXT(me_DWR_L3), NONE, CANT_WAIT_FOR_NEXT, retOld); 
                     if 
                 :: retOld == false ->
                                byte tmpStatus;
-                    SWAP(L3_STATUS(L3_NEXT(me)), tmpStatus, UNLOCKED);
+                    SWAP(L3_STATUS(L3_NEXT(me_DWR_L3)), tmpStatus, UNLOCKED);
                     if
                         :: tmpStatus == ABORTED ->
-                            byte tmpSucc = L3_NEXT(me);
+                            byte tmpSucc = L3_NEXT(me_DWR_L3);
                             d_step{
-                                L3_NEXT(me) = prev;
-                                prev = me;
-                                me =     tmpSucc;
+                                L3_NEXT(me_DWR_L3) = prev;
+                                prev = me_DWR_L3;
+                                me_DWR_L3 =     tmpSucc;
                             }
-                        :: else -> atomic {L3_STATUS(me) = READY_TO_USE; break;}
+                        :: else -> atomic {L3_STATUS(me_DWR_L3) = READY_TO_USE; break;}
 
                     fi    
                         :: else -> break;
             fi
-        :: else -> atomic {L3_NEXT(me) = READY_TO_USE; break;}
+        :: else -> atomic {L3_STATUS(me_DWR_L3) = READY_TO_USE; break;}
        fi
         od
 }
 
 inline ReleaseL3()
 {
-    byte myL3Id = MY_L3_NODE_ID(_pid);
     byte prev_Rel_L3 = NONE;
-    byte curNode_Rel_L3 = MY_L3_NODE_ID(_pid);
+    byte curNode_Rel_L3 = myL3Id;
     byte prevStatus_Rel_L3;
     byte succ_Rel_L3;
     do
@@ -684,7 +693,7 @@ inline ReleaseL3()
                         :: else -> atomic {MY_L3_STATUS = READY_TO_USE; goto CLEANUP;}
                     fi 
                 :: else -> 
-                    DealWithRestOfLevel3(curNode_Rel_L3, prevStatus_Rel_L3);
+                    DealWithRestOfLevel3(curNode_Rel_L3, prev_Rel_L3);
                     goto CLEANUP;
        fi
     od
@@ -712,6 +721,16 @@ active [MAX_THREADS] proctype  Work()
     byte myL2Id;
     byte myL3Id;
 */
+
+    byte myL1Id;
+    byte myL2Id;
+    byte myL3Id;
+
+d_step{
+    myL1Id = MY_L1_NODE_ID(_pid);
+    myL2Id = MY_L2_NODE_ID(_pid);
+    myL3Id = MY_L3_NODE_ID(_pid);
+}
 
     /* init */
     if
@@ -765,9 +784,9 @@ active [MAX_THREADS] proctype  Work()
            fi
 */
 
-
    do
         :: j > 0 -> 
+/*
            if 
                :: _pid < 3 ->
                    AcquireWrapperL1(acquired); 
@@ -784,10 +803,36 @@ active [MAX_THREADS] proctype  Work()
                :: else -> 
                    AcquireWrapperL3(acquired); 
                    if
-                       :: acquired -> ReleaseL3();
+                       :: acquired -> 
+                                      ReleaseL3(); 
                        :: else -> skip;
                    fi
            fi
+*/
+           if 
+               :: _pid == 1 -> break;
+               :: _pid == 2 -> break;
+               :: _pid == 0 ->
+                   AcquireWrapperL2(acquired); 
+                   if
+                       :: acquired -> ReleaseL2();
+                       :: else -> skip;
+                   fi
+               :: else -> 
+                   AcquireWrapperL3(acquired); 
+                   if
+                       :: acquired -> 
+                                      ReleaseL3();
+                       :: else -> skip;
+                   fi
+           fi
+/*
+                   AcquireWrapperL3(acquired); 
+                   if
+                       :: acquired -> ReleaseL3();
+                       :: else -> skip;
+                   fi
+*/
            j--;
         :: else -> break;
     od
