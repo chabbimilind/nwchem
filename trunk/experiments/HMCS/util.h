@@ -19,7 +19,9 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#if __cplusplus >= 201103L 
 #include <atomic>
+#endif
 #include <sys/syscall.h>    /* For SYS_xxx definitions */
 
 #define  LOCKED (false)
@@ -92,7 +94,7 @@ assert( 0 && "unsupported platform");
 #define CACHE_LINE_SIZE (128)
 
 //#define DOWORK
-#define VALIDATE
+//#define VALIDATE
 /* for performance measurement on small number of levels, disable try release */
 /* for correctness checks enable try release */
 //#define TRY_RELEASE
