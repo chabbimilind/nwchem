@@ -4,7 +4,7 @@
 
 #define THRESHOLD (3)
 
-#define MAX_THREADS (4)
+#define MAX_THREADS (7)
 
 #define NONE (255)
 
@@ -55,22 +55,21 @@ byte L3;
 #define L3_NEXT(id_8) nextL3[id_8]
 #define HAS_VALID_L3_SUCC(id_9) nextL3[id_9] < MAX_L3_THREADS
 
-/*
+
 #define MY_L1_NODE_ID(id) (id <= 2 -> id : 0)
 
 #define MY_L2_NODE_ID(id) (id <= 2 -> 0 : (id <= 4 -> id - 2 : 0) )
 
 #define MY_L3_NODE_ID(id) (id <= 4 -> 0 : id - 4)
 
-*/
-
+/*
 
 #define MY_L1_NODE_ID(id_123) (0)
 
 #define MY_L2_NODE_ID(id_456) (id_456 <= 2 -> id_456: 0)
 
 #define MY_L3_NODE_ID(id_768) (id_768 <= 2 -> 0 : id_768 - 2 )
-
+*/
 
 /*
 #define MY_L3_NODE_ID(id) (id)
@@ -117,7 +116,7 @@ inline AcquireL3(abortedLevel_Acq_L3)
         CAS(MY_L3_STATUS, WAIT, UNLOCKED, tmpStatus);
 
         if
-            :: tmpStatus != READY_TO_USE -> atomic{ abortedLevel_Acq_L3 = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
+            :: tmpStatus != READY_TO_USE -> abortedLevel_Acq_L3 = 2 /* L3 */; goto DONE_ACQUIRE_L3;
             :: else -> skip; 
         fi
 
@@ -135,8 +134,8 @@ inline AcquireL3(abortedLevel_Acq_L3)
             SWAP(L3_NEXT(pred_Acq_L3), predStat_Acq_L3, myL3Id);
             if
                 :: predStat_Acq_L3 == CANT_WAIT_FOR_NEXT ->
-                        atomic{ L3_STATUS(pred_Acq_L3)= READY_TO_USE;
-                        goto SET_AND_FINISH_ACQUIRE_L3;}
+                        L3_STATUS(pred_Acq_L3)= READY_TO_USE;
+                        goto SET_AND_FINISH_ACQUIRE_L3;
                 :: else -> skip
             fi
             
@@ -144,7 +143,7 @@ inline AcquireL3(abortedLevel_Acq_L3)
  
                 /* Not needed in spin 
             if
-                :: MY_L3_STATUS == UNLOCKED -> atomic { abortedLevel_Acq_L3 = NONE; goto DONE_ACQUIRE_L3;}
+                :: MY_L3_STATUS == UNLOCKED ->  abortedLevel_Acq_L3 = NONE; goto DONE_ACQUIRE_L3;
                 :: else -> skip;
             fi  */
 
@@ -154,7 +153,8 @@ inline AcquireL3(abortedLevel_Acq_L3)
                 :: else -> skip;
             fi
 
-            atomic { abortedLevel_Acq_L3 = 2 /* L3 */; goto DONE_ACQUIRE_L3;}
+            abortedLevel_Acq_L3 = 2 /* L3 */; 
+            goto DONE_ACQUIRE_L3;
 
         :: else -> goto SET_AND_FINISH_ACQUIRE_L3;
     fi
@@ -186,7 +186,7 @@ inline AcquireL2(abortedLevel_Acq_L2)
             /*while(I->status != READY_TO_USE); No unbounded wait*/
             CAS(MY_L2_STATUS, WAIT, ACQUIRE_PARENT, tmpStatus_Acq_L2);
             if
-                :: tmpStatus_Acq_L2 != READY_TO_USE -> atomic{ abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;}
+                :: tmpStatus_Acq_L2 != READY_TO_USE -> abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;
                 :: else -> skip;
             fi
     fi
@@ -221,7 +221,7 @@ inline AcquireL2(abortedLevel_Acq_L2)
             if
                 :: prevStatus_Acq_L2 < ACQUIRE_PARENT -> MY_L2_STATUS  = prevStatus_Acq_L2 ; goto SET_AND_FINISH_ACQUIRE_L2;
                 :: prevStatus_Acq_L2 == ACQUIRE_PARENT -> MY_L2_STATUS  = COHORT_START ;  AcquireL3(abortedLevel_Acq_L2); goto DONE_ACQUIRE_L2;
-                :: else -> atomic { abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;};
+                :: else -> abortedLevel_Acq_L2 = 1 /* L2 */; goto DONE_ACQUIRE_L2;
             fi
     fi
 
@@ -254,7 +254,7 @@ inline AcquireL1(abortedLevel_Acq_L1)
             CAS(MY_L1_STATUS, WAIT, ACQUIRE_PARENT, tmpStatus_Acq_L1);
 
             if
-                :: tmpStatus_Acq_L1 != READY_TO_USE -> atomic{ abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;}
+                :: tmpStatus_Acq_L1 != READY_TO_USE -> abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;
                 :: else -> skip;
             fi
     fi
@@ -289,7 +289,7 @@ START_SPIN_L1: skip;
             if
                 :: prevStatus_Acq_L1 < ACQUIRE_PARENT -> MY_L1_STATUS  = prevStatus_Acq_L1 ; goto SET_AND_FINISH_ACQUIRE_L1;
                 :: prevStatus_Acq_L1 == ACQUIRE_PARENT -> MY_L1_STATUS  = COHORT_START ;  AcquireL2(abortedLevel_Acq_L1); goto DONE_ACQUIRE_L1;
-                :: else -> atomic { abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;};
+                :: else -> abortedLevel_Acq_L1 = 0 /* L1 */; goto DONE_ACQUIRE_L1;
             fi
     fi
 
@@ -331,11 +331,11 @@ inline DealWithRestOfL2(me_DWR_L2 /* destroyed */, prev_DWR_L2 /* destroyed and 
                                         prev_DWR_L2 = me_DWR_L2;
                                         me_DWR_L2 =     tmpSucc_DWR_L2;
                                     }
-                                :: else -> atomic {L2_STATUS(me_DWR_L2) = READY_TO_USE; break;}
+                                :: else -> L2_STATUS(me_DWR_L2) = READY_TO_USE; break;
                             fi
                         :: else -> break;
                     fi
-                :: else -> atomic {L2_STATUS(me_DWR_L2) = READY_TO_USE; break;}
+                :: else -> L2_STATUS(me_DWR_L2) = READY_TO_USE; break;
             fi
     od
 }
@@ -370,11 +370,11 @@ inline DealWithRestOfL1(me_DWR_L1 /* destroyed */, prev_DWR_L1 /* destroyed and 
                                         prev_DWR_L1 = me_DWR_L1;
                                         me_DWR_L1 =     tmpSucc_DWR_L1;
                                     }
-                                :: else -> atomic {L1_STATUS(me_DWR_L1) = READY_TO_USE; break;}
+                                :: else -> L1_STATUS(me_DWR_L1) = READY_TO_USE; break;
                             fi
                 :: else -> break;
             fi
-        :: else -> atomic {L1_STATUS(me_DWR_L1) = READY_TO_USE; break;}
+        :: else -> L1_STATUS(me_DWR_L1) = READY_TO_USE; break;
        fi
     od
 }
@@ -661,12 +661,12 @@ inline DealWithRestOfLevel3(me_DWR_L3 /* destroyed */ , prev /* destroyed and us
                                 prev = me_DWR_L3;
                                 me_DWR_L3 =     tmpSucc;
                             }
-                        :: else -> atomic {L3_STATUS(me_DWR_L3) = READY_TO_USE; break;}
+                        :: else -> L3_STATUS(me_DWR_L3) = READY_TO_USE; break;
 
                     fi    
                         :: else -> break;
             fi
-        :: else -> atomic {L3_STATUS(me_DWR_L3) = READY_TO_USE; break;}
+        :: else -> L3_STATUS(me_DWR_L3) = READY_TO_USE; break;
        fi
         od
 }
@@ -690,7 +690,7 @@ inline ReleaseL3()
                                 prev_Rel_L3 = curNode_Rel_L3;
                                 curNode_Rel_L3 = succ_Rel_L3; 
                              }
-                        :: else -> atomic {MY_L3_STATUS = READY_TO_USE; goto CLEANUP;}
+                        :: else -> MY_L3_STATUS = READY_TO_USE; goto CLEANUP;
                     fi 
                 :: else -> 
                     DealWithRestOfLevel3(curNode_Rel_L3, prev_Rel_L3);
@@ -786,7 +786,7 @@ d_step{
 
    do
         :: j > 0 -> 
-/*
+
            if 
                :: _pid < 3 ->
                    AcquireWrapperL1(acquired); 
@@ -808,11 +808,10 @@ d_step{
                        :: else -> skip;
                    fi
            fi
-*/
+
+/*
            if 
-               :: _pid == 1 -> break;
-               :: _pid == 2 -> break;
-               :: _pid == 0 ->
+               :: _pid < 3 ->
                    AcquireWrapperL2(acquired); 
                    if
                        :: acquired -> ReleaseL2();
@@ -826,6 +825,7 @@ d_step{
                        :: else -> skip;
                    fi
            fi
+*/
 /*
                    AcquireWrapperL3(acquired); 
                    if
