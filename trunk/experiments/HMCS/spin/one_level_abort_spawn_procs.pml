@@ -24,6 +24,11 @@ byte inCS;
 chan ch0 = [1] of {bool};
 chan ch1 = [1] of {bool};
 
+chan finishCh[3] = [1] of {bool};
+
+
+byte numAcquisitions;
+
 #define MY_STATUS status[_pid-1]
 #define MY_NEXT next[_pid-1]
 
@@ -156,6 +161,7 @@ inline AcquireWrapper(acquired)
 		:: d_step { abortedNode==NONE -> 
 				acquired=true; 
 				inCS++;
+				numAcquisitions++;
 			};
   			d_step{
 				assert(inCS == 1); 
@@ -244,7 +250,7 @@ proctype  Work()
         byte numRounds = 3;
 	bool acquired;
         do
-        :: numRounds > 0 -> 
+        :: numRounds > 1 -> 
 		AcquireWrapper(acquired); 
 		if
 			:: acquired -> Release();
@@ -253,6 +259,14 @@ proctype  Work()
 		numRounds--;
         :: else -> break;
         od;	
+
+atomic{
+	if
+	:: _pid-1 == 2 -> finishCh[_pid-1]!true;
+	:: else -> finishCh[_pid]?true; finishCh[_pid-1]!true;
+	fi;
+};
+
 }
  
 init {
@@ -263,10 +277,12 @@ init {
                                 byte i;
                                 for(i: 0..(MAX_THREADS-1)){
                                         next[i] = NONE;
-                                        status[i] = WAIT;
+                                        status[i] = READY_TO_USE;
                                 }
                         }
 
 	run Work();
+	finishCh[0]?true;
+	assert(numAcquisitions >= 2);
 } 
 
