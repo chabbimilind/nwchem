@@ -187,8 +187,8 @@ inline DealWithRestOfLevel1(me, prev){
 					SWAP(status[next[me]], tmpStatus, UNLOCKED);};
 					if
 						::  d_step { tmpStatus == ABORTED ->
-							tmpSucc = next[me];
-								next[me] = prev;
+							tmpSucc = next[me];};
+							d_step { next[me] = prev;
 								prev = me;
 								me = 	tmpSucc;
 							};
