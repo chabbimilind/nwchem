@@ -290,13 +290,14 @@ struct HMCSAdaptiveLock{
 #endif
 
         // Fast path ... If root is null, enqueue there
-        if(rootNode->lock == NULL) {
+        if(nodeToEnqueue->lock == NULL && rootNode->lock == NULL) {
             tookFastPath = true;
             HMCSLock<1>::Acquire(rootNode, I);
             return;
         }
         
         tookFastPath = false;
+/*
         if(childNode){
             depthToEnqueue = curDepth + 1;
             nodeToEnqueue = childNode;
@@ -304,7 +305,7 @@ struct HMCSAdaptiveLock{
             depthToEnqueue = curDepth;
             nodeToEnqueue = curNode;
         }
-        
+*/        
         switch(depthToEnqueue){
             case 1: depthFirstWaited = HMCSLock<1>::Acquire(nodeToEnqueue, I); break;
             case 2: depthFirstWaited = HMCSLock<2>::Acquire(nodeToEnqueue, I); break;
@@ -343,6 +344,8 @@ struct HMCSAdaptiveLock{
                     for(temp = leafNode; temp->parent != childNode; temp = temp->parent)
                     ;
                     childNode = temp;
+                    depthToEnqueue = curDepth + 1;
+                    nodeToEnqueue = childNode;
                 }
                 hysteresis = STAY_PUT;
                 //printf("\n DOWN TO %d\n", curDepth);
@@ -355,6 +358,8 @@ struct HMCSAdaptiveLock{
                 curDepth--;
                 childNode = curNode;
                 curNode = curNode->parent;
+                depthToEnqueue = curDepth+1;
+                nodeToEnqueue = childNode;
                 //printf("\n UP TO %d\n", curDepth);
                 hysteresis = STAY_PUT;
             }
