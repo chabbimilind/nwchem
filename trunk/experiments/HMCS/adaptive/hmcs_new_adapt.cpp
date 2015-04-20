@@ -258,7 +258,7 @@ struct HMCSAdaptiveLock{
     
     HMCSAdaptiveLock(HNode * leaf, uint8_t depth) :
     hysteresis(STAY_PUT),
-    curNode(leaf), leafNode(leaf), childNode(NULL),
+    curNode(leaf), leafNode(leaf), childNode(NULL), depthToEnqueue(depth), nodeToEnqueue(leaf),
     maxLevels(depth), curDepth(depth), tookFastPath(false)
     {
 #ifdef PROFILE
@@ -277,6 +277,8 @@ struct HMCSAdaptiveLock{
         childNode=NULL;
         curDepth=maxLevels;
         tookFastPath = false;
+        depthToEnqueue = maxLevels;
+        nodeToEnqueue = leafNode;
 #ifdef PROFILE
         for(int i = 0 ; i < MAX_STATS; i++)
         stats[i] = 0;
@@ -290,7 +292,8 @@ struct HMCSAdaptiveLock{
 #endif
 
         // Fast path ... If root is null, enqueue there
-        if(nodeToEnqueue->lock == NULL && rootNode->lock == NULL) {
+        //if(nodeToEnqueue->lock == NULL && rootNode->lock == NULL) {
+        if(rootNode->lock == NULL) {
             tookFastPath = true;
             HMCSLock<1>::Acquire(rootNode, I);
             return;
