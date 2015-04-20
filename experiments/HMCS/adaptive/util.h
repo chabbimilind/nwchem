@@ -60,6 +60,7 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 #define CAS(location, oldValue, newValue) __sync_val_compare_and_swap(location, oldValue, newValue)
 #define SWAP(location, value) __sync_lock_test_and_set(location, value)
 #define BOOL_CAS(location, oldValue, newValue) __sync_bool_compare_and_swap(location, oldValue, newValue)
+#define ATOMIC_ADD(location, value) __sync_fetch_and_add((volatile int64_t *) location, (int64_t) value)
 
 #ifdef __PPC__
 #define FORCE_INS_ORDERING() __asm__ __volatile__ (" isync\n\t")
@@ -130,6 +131,7 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 
 /* taken from https://computing.llnl.gov/tutorials/pthreads/man/pthread_setaffinity_np.txt */
 void PrintAffinity(int tid){
+    return;
     int s, j;
     cpu_set_t cpuset;
     pthread_t thread;
