@@ -79,7 +79,9 @@ assert( 0 && "unsupported platform");
 
 #define TIME_SPENT(start, end) (end.tv_sec * 1000000 + end.tv_usec - start.tv_sec*1000000 - start.tv_usec)
 
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE (128)
+#endif
 
 //#define DOWORK
 //#define VALIDATE
@@ -90,6 +92,7 @@ volatile int var = 0;
 #endif
 
 #ifdef DOWORK
+/*
 struct InsideCS{
     volatile uint64_t f1 __attribute__((aligned(CACHE_LINE_SIZE)));
     volatile uint64_t f2 __attribute__((aligned(CACHE_LINE_SIZE)));
@@ -103,6 +106,50 @@ void DoWorkInsideCS(){
     gInsideCS.f1++;
     gInsideCS.f2++;
 }
+*/
+
+struct CriticalData_t{
+    uint64_t data __attribute__((aligned(CACHE_LINE_SIZE)));
+    inline void* operator new(size_t size) {
+        void *storage = memalign(CACHE_LINE_SIZE, size);
+        if(NULL == storage) {
+            throw "allocation fail : no free memory";
+        }
+        return storage;
+    }
+} __attribute__((aligned(CACHE_LINE_SIZE)));
+
+// +1 to allow for MAX_DATA = 0
+CriticalData_t * gCriticalData[MAX_DATA + 1] __attribute__((aligned(CACHE_LINE_SIZE)));
+
+// Touch shared variables when inside a critical section
+void DoWorkInsideCS(){
+    for(int i = 0 ; i < MAX_DATA; i++)
+        gCriticalData[i]->data++;
+}
+
+// Each thread allocates its share of data
+void static AllocateCS(int tid, int numThreads){
+    for(int i = tid ; i < MAX_DATA; i+=numThreads) {
+        gCriticalData[i] = new CriticalData_t();
+        gCriticalData[i]->data = 0; // first touch
+    }
+#pragma omp barrier
+#pragma omp single 
+    {
+        
+        // jumble
+        srand(0);
+        for(int i = 0; i < MAX_DATA; i++) {
+            int randIndex = rand() % MAX_DATA;
+            // swap
+            CriticalData_t * tmp =  gCriticalData[randIndex];
+            gCriticalData[randIndex] = gCriticalData[i];
+            gCriticalData[i] = tmp;
+        }
+    }
+}
+
 
 // perform some dummy operations and spend time when outside critical section
 uint64_t DoWorkOutsideCS(struct drand48_data * randSeedbuffer){
