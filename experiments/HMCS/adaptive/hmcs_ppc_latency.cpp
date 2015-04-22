@@ -461,6 +461,7 @@ int main(int argc, char *argv[]){
         PrintAffinity(tid);
 #endif
         HMCSLockWrapper * hmcs = LockInit(tid, size, levels, participantsAtLevel);
+        AllocateCS(tid, numThreads);
         // Warmup
         QNode me;
         const int warmupRounds = 20;

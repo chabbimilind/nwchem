@@ -612,6 +612,8 @@ int main(int argc, char *argv[]){
         PrintAffinity(tid);
 #endif
         HMCSAdaptiveLock * hmcs = LockInit(tid, size, levels, participantsAtLevel);
+        
+        AllocateCS(tid, numThreads);
         // Warmup
         QNode me;
         const int warmupRounds = 20;
