@@ -7,7 +7,7 @@ CXX=xlc++
 #export GOMP_CPU_AFFINITY="0-47"
 mustBeAMultiple=1
 throughput=512
-timeout=60
+timeout=20
 nIter=99999999999990
 level1TH=64
 level2TH=64
@@ -16,11 +16,14 @@ level3TH=1
 #$CXX $FLAGS -o hmcs_new_adapt hmcs_new_adapt.cpp -lrt
 #$CXX $FLAGS -o hmcs_adapt_orig_c hmcs_adapt_orig.cpp  -lrt
 #for mult in $(seq 1 128)
-for DATA in 1 2 4 8 16 32 64 128 256 512 1024 2048
+#for DATA in 1 2 4 8 16 32 64 128 256 512 1024 2048
+for DATA in 1 
 do
 $CXX $FLAGS -DMAX_DATA=${DATA} -o hmcs_ppc_latency hmcs_ppc_latency.cpp  -lrt
-$CXX $FLAGS -DMAX_DATA=${DATA} -o hmcs_new_adapt hmcs_new_adapt.cpp -lrt
-for mult in 1 2 4 8 16 32 64 128
+#$CXX $FLAGS -DMAX_DATA=${DATA} -o hmcs_new_adapt hmcs_new_adapt.cpp -lrt
+$CXX $FLAGS -DMAX_DATA=${DATA} -o hmcs_new_adapt hmcs_new_adapt_take2.cpp -lrt
+#for mult in 1 2 4 8 16 32 64 128
+for mult in 16
 do
 #perf stat -e LLC-store-misses ./hmcs_ppc $mult $timeout $nIter 128 1 128 $level3TH
 ./hmcs_ppc_latency $mult $timeout $nIter 128 1 128 $level3TH

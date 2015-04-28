@@ -106,23 +106,22 @@ enum Hysteresis {MOVE_DOWN = -10, STAY_PUT, MOVE_UP = 10};
 enum Hysteresis {MOVE_DOWN = -20, STAY_PUT, MOVE_UP = 20};
 #endif
 
-inline static void NormalMCSReleaseWithValue(HNode * L, QNode *I, uint64_t val){
+inline static PassingStatus NormalMCSReleaseWithValue(HNode * L, QNode *I, uint64_t val){
     QNode * succ = I->next;
     if(succ) {
         succ->status = val;
-        return;
+        return CONTENDED;
     }
     if (BOOL_CAS(&(L->lock), I, NULL))
-    return;
-    
+    return UNCONTENDED;
     while( (succ=I->next) == NULL);
     succ->status = val;
-    return;
+    return CONTENDED;
 }
 
 template<int level>
 struct HMCSLock{
-    inline static int AcquireHelper(HNode * L, QNode *I) {
+    inline static PassingStatus AcquireHelper(HNode * L, QNode *I) {
         // Prepare the node for use.
         I->Reuse();
         QNode * pred = (QNode *) SWAP(&(L->lock), I);
@@ -131,28 +130,29 @@ struct HMCSLock{
             // begining of cohort
             I->status = COHORT_START;
             // Acquire at next level if not at the top level
-            return HMCSLock<level-1>::AcquireHelper(L->parent, &(L->node));
+            HMCSLock<level-1>::AcquireHelper(L->parent, &(L->node));
+            return UNCONTENDED;
         } else {
             pred->next = I;
             for(;;){
                 uint64_t myStatus = I->status;
                 if(myStatus < ACQUIRE_PARENT) {
-                    return level;
+                    return CONTENDED;
                 }
                 if(myStatus == ACQUIRE_PARENT) {
                     // beginning of cohort
                     I->status = COHORT_START;
                     // This means this level is acquired and we can start the next level
                     HMCSLock<level-1>::AcquireHelper(L->parent, &(L->node));
-                    return level;
+                    return CONTENDED;
                 }
                 // spin back; (I->status == WAIT)
             }
         }
     }
     
-    inline static int Acquire(HNode * L, QNode *I) {
-        int s = HMCSLock<level>::AcquireHelper(L, I);
+    inline static PassingStatus Acquire(HNode * L, QNode *I) {
+        PassingStatus s = HMCSLock<level>::AcquireHelper(L, I);
         FORCE_INS_ORDERING();
         return s;
     }
@@ -161,7 +161,7 @@ struct HMCSLock{
     
     
     
-    inline static int ReleaseHelper(HNode * L, QNode *I) {
+    inline static PassingStatus ReleaseHelper(HNode * L, QNode *I) {
         
         uint64_t curCount = I->status;
         QNode * succ;
@@ -174,26 +174,24 @@ struct HMCSLock{
             HMCSLock<level - 1>::Release(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
             // Tap successor at this level and ask to spin acquire next level lock
-            NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-            // if we passed many times, we can simply say this one would have found a successor as well
-            return level;
+            return NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
         }
         
         succ = I->next;
         // Not reached threshold
         if(succ) {
             succ->status = curCount + 1;
-            return level; // Released
+            return CONTENDED; // Released
         }
         // No known successor, so release
-        int whereReleased = HMCSLock<level - 1>::Release(L->parent, &(L->node));
+        HMCSLock<level - 1>::Release(L->parent, &(L->node));
         COMMIT_ALL_WRITES();
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
-        return whereReleased;
+        return UNCONTENDED;
     }
     
-    inline static int Release(HNode * L, QNode *I) {
+    inline static PassingStatus Release(HNode * L, QNode *I) {
         COMMIT_ALL_WRITES();
         return HMCSLock<level>::ReleaseHelper(L, I);
     }
@@ -201,37 +199,36 @@ struct HMCSLock{
 
 template <>
 struct HMCSLock<1> {
-    inline static int AcquireHelper(HNode * L, QNode *I) {
+    inline static PassingStatus AcquireHelper(HNode * L, QNode *I) {
         // Prepare the node for use.
         I->Reuse();
         QNode * pred = (QNode *) SWAP(&(L->lock), I);
         if(!pred) {
             // I am the first one at this level
-            return 1;
+            return UNCONTENDED;
         }
         pred->next = I;
         while(I->status==WAIT);
-        return 1;
+        return CONTENDED;
     }
     
     
-    inline static int Acquire(HNode * L, QNode *I) {
-        int s = HMCSLock<1>::AcquireHelper(L, I);
+    inline static PassingStatus Acquire(HNode * L, QNode *I) {
+        PassingStatus s = HMCSLock<1>::AcquireHelper(L, I);
         FORCE_INS_ORDERING();
         return s;
     }
     
-    inline static int ReleaseHelper(HNode * L, QNode *I) {
+    inline static PassingStatus ReleaseHelper(HNode * L, QNode *I) {
         // Top level release is usual MCS
         // At the top level MCS we always writr COHORT_START since
         // 1. It will release the lock
         // 2. Will never grow large
         // 3. Avoids a read from I->status
-        NormalMCSReleaseWithValue(L, I, COHORT_START);
-        return 1;
+        return NormalMCSReleaseWithValue(L, I, COHORT_START);
     }
     
-    inline static int Release(HNode * L, QNode *I) {
+    inline static PassingStatus Release(HNode * L, QNode *I) {
         COMMIT_ALL_WRITES();
         return HMCSLock<1>::ReleaseHelper(L, I);
     }
@@ -244,13 +241,20 @@ struct HMCSAdaptiveLock{
     HNode * childNode;
     uint8_t curDepth;
     uint8_t maxLevels;
+    bool haveChildContentionOnEntry;
+    bool haveChildContentionOnExit;
+    bool isUncontendedAcquire;
+    bool isUncontendedRelease;
+    bool hasCounterChanged;
     int8_t hysteresis;
-    int depthToEnqueue;
-    HNode * nodeToEnqueue;
-    int depthFirstWaited;
-    int depthlFirstPassed;
     HNode * rootNode;
     bool tookFastPath;
+#ifdef HEAVY_WEIGHT_COUNTER
+    //NOP
+#else
+    uint64_t lastSeenAppxCounter;
+#endif
+    
 #ifdef PROFILE
 #define MAX_STATS (10)
     uint64_t stats[MAX_STATS];
@@ -258,9 +262,9 @@ struct HMCSAdaptiveLock{
     
     HMCSAdaptiveLock(HNode * leaf, uint8_t depth) :
     hysteresis(STAY_PUT),
-    curNode(leaf), leafNode(leaf), childNode(NULL), depthToEnqueue(depth), nodeToEnqueue(leaf),
-    maxLevels(depth), curDepth(depth), tookFastPath(false)
-    {
+    curNode(leaf), leafNode(leaf), childNode(NULL),
+    maxLevels(depth), curDepth(depth),
+    isUncontendedAcquire(false), isUncontendedRelease(false), haveChildContentionOnEntry(false), haveChildContentionOnExit(false) {
 #ifdef PROFILE
         for(int i = 0 ; i < MAX_STATS; i++)
         stats[i] = 0;
@@ -277,22 +281,50 @@ struct HMCSAdaptiveLock{
         childNode=NULL;
         curDepth=maxLevels;
         tookFastPath = false;
-        depthToEnqueue = maxLevels;
-        nodeToEnqueue = leafNode;
+
 #ifdef PROFILE
         for(int i = 0 ; i < MAX_STATS; i++)
         stats[i] = 0;
 #endif
     }
     
+    inline void SignalOnEntry(){
+#ifdef HEAVY_WEIGHT_COUNTER
+        if ((childNode) && (ATOMIC_ADD(&childNode->contentionCounter, 1) > 0 || childNode->lock))
+        haveChildContentionOnEntry = true;
+        else
+        haveChildContentionOnEntry = false;
+#else
+        if (childNode) {
+            lastSeenAppxCounter =  ATOMIC_ADD(&childNode->appxCounter, 1) + 1;
+            haveChildContentionOnEntry = childNode->lock !=  NULL;
+        } else {
+            haveChildContentionOnEntry = false;
+        }
+#endif
+    }
+    
+    inline void SignalOnExit(){
+#if defined(HEAVY_WEIGHT_COUNTER)
+        if ((childNode) && (ATOMIC_ADD(&childNode->contentionCounter, -1) > 1 || childNode->lock))
+        haveChildContentionOnExit = true;
+        else
+        haveChildContentionOnExit = false;
+#else
+        if (childNode) {
+            haveChildContentionOnExit = childNode->lock != NULL;
+            hasCounterChanged = lastSeenAppxCounter != childNode->appxCounter;
+        } else {
+            haveChildContentionOnExit = false;
+            hasCounterChanged = false;
+        }
+#endif
+        
+    }
+    
     
     inline void Acquire(QNode *I){
-#ifdef PROFILE
-        stats[curDepth]++;
-#endif
-
-        // Fast path ... If root is null, enqueue there
-        //if(nodeToEnqueue->lock == NULL && rootNode->lock == NULL) {
+        
         if(rootNode->lock == NULL) {
             tookFastPath = true;
             HMCSLock<1>::Acquire(rootNode, I);
@@ -300,21 +332,19 @@ struct HMCSAdaptiveLock{
         }
         
         tookFastPath = false;
-/*
-        if(childNode){
-            depthToEnqueue = curDepth + 1;
-            nodeToEnqueue = childNode;
-        } else {
-            depthToEnqueue = curDepth;
-            nodeToEnqueue = curNode;
-        }
-*/        
-        switch(depthToEnqueue){
-            case 1: depthFirstWaited = HMCSLock<1>::Acquire(nodeToEnqueue, I); break;
-            case 2: depthFirstWaited = HMCSLock<2>::Acquire(nodeToEnqueue, I); break;
-            case 3: depthFirstWaited = HMCSLock<3>::Acquire(nodeToEnqueue, I); break;
-            case 4: depthFirstWaited = HMCSLock<4>::Acquire(nodeToEnqueue, I); break;
-            case 5: depthFirstWaited = HMCSLock<5>::Acquire(nodeToEnqueue, I); break;
+
+        
+#ifdef PROFILE
+        stats[curDepth]++;
+#endif
+        SignalOnEntry();
+        
+        switch(curDepth){
+            case 1: isUncontendedAcquire = HMCSLock<1>::Acquire(curNode, I); break;
+            case 2: isUncontendedAcquire = HMCSLock<2>::Acquire(curNode, I); break;
+            case 3: isUncontendedAcquire = HMCSLock<3>::Acquire(curNode, I); break;
+            case 4: isUncontendedAcquire = HMCSLock<4>::Acquire(curNode, I); break;
+            case 5: isUncontendedAcquire = HMCSLock<5>::Acquire(curNode, I); break;
             default: assert(0 && "NYI");
         }
     }
@@ -325,17 +355,18 @@ struct HMCSAdaptiveLock{
             return;
         }
         
-        switch(depthToEnqueue){
-            case 1: depthlFirstPassed = HMCSLock<1>::Release(nodeToEnqueue, I); break;
-            case 2: depthlFirstPassed = HMCSLock<2>::Release(nodeToEnqueue, I); break;
-            case 3: depthlFirstPassed = HMCSLock<3>::Release(nodeToEnqueue, I); break;
-            case 4: depthlFirstPassed = HMCSLock<4>::Release(nodeToEnqueue, I); break;
-            case 5: depthlFirstPassed = HMCSLock<5>::Release(nodeToEnqueue, I); break;
+        SignalOnExit();
+        switch(curDepth){
+            case 1: isUncontendedRelease = HMCSLock<1>::Release(curNode, I); break;
+            case 2: isUncontendedRelease = HMCSLock<2>::Release(curNode, I); break;
+            case 3: isUncontendedRelease = HMCSLock<3>::Release(curNode, I); break;
+            case 4: isUncontendedRelease = HMCSLock<4>::Release(curNode, I); break;
+            case 5: isUncontendedRelease = HMCSLock<5>::Release(curNode, I); break;
             default: assert(0 && "NYI");
         }
         
 #if 1 /* defined(HEAVY_WEIGHT_COUNTER) || defined(APPX_COUNTER) */
-        if(childNode && ( (depthFirstWaited > curDepth) && (depthlFirstPassed > curDepth)) ){
+        if(childNode && ( (haveChildContentionOnEntry && haveChildContentionOnExit) || hasCounterChanged)){
             hysteresis--;
             if(hysteresis == MOVE_DOWN) {
                 curDepth++;
@@ -347,40 +378,25 @@ struct HMCSAdaptiveLock{
                     for(temp = leafNode; temp->parent != childNode; temp = temp->parent)
                     ;
                     childNode = temp;
-                    depthToEnqueue = curDepth + 1;
-                    nodeToEnqueue = childNode;
                 }
                 hysteresis = STAY_PUT;
                 //printf("\n DOWN TO %d\n", curDepth);
             }
             return;
         }
-        if ((curDepth != 1) && ( (depthFirstWaited <  curDepth) && (depthlFirstPassed < curDepth))){
+        if ((curDepth != 1) && (isUncontendedAcquire && isUncontendedRelease)){
             hysteresis++;
             if(hysteresis == MOVE_UP) {
                 curDepth--;
                 childNode = curNode;
                 curNode = curNode->parent;
-                depthToEnqueue = curDepth+1;
-                nodeToEnqueue = childNode;
                 //printf("\n UP TO %d\n", curDepth);
                 hysteresis = STAY_PUT;
             }
             return;
         }
-       
-/* 
-        if (hysteresis < STAY_PUT) {
-            hysteresis++;
-            return;
-        }
-        if ( hysteresis > STAY_PUT) {
-            hysteresis--;
-            return;
-        }
-*/
-        hysteresis = STAY_PUT;             
-            
+        
+        hysteresis = STAY_PUT;
 /*        if(hysteresis > STAY_PUT) {
             hysteresis--;
             return;
@@ -614,7 +630,7 @@ int main(int argc, char *argv[]){
         PrintAffinity(tid);
 #endif
         HMCSAdaptiveLock * hmcs = LockInit(tid, size, levels, participantsAtLevel);
-        
+
         AllocateCS(tid, numThreads);
         // Warmup
         QNode me;
@@ -684,7 +700,6 @@ int main(int argc, char *argv[]){
     std::sort (myvector3.begin(), myvector3.begin()+numThreads);
     
     printf("\n 1 = %lu, 2 = %lu, 3 = %lu", myvector1[numThreads/2], myvector2[numThreads/2], myvector3[numThreads/2]);
-    printf("\n 1 = %lu, 2 = %lu, 3 = %lu", resultStats1[0], resultStats2[0], resultStats3[0]);
 #endif
     
     elapsed = TIME_SPENT(startTime, endTime);
