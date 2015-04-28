@@ -13,6 +13,7 @@
 #include <malloc.h>
 #include <errno.h>
 #include <pthread.h>
+#include <unistd.h>
 #include <signal.h>
 #include <sys/syscall.h>    /* For SYS_xxx definitions */
 

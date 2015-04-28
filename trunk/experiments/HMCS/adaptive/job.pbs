@@ -1,11 +1,11 @@
 #PBS -N HMCS
 #PBS -q serial
-#PBS -l nodes=1:ppn=32,walltime=12:00:00
+#PBS -l nodes=1:ppn=32,walltime=20:00:00
 #PBS -M milisoft@gmail.com
 #PBS -m abe
 #PBS -j oe
 #PBS -W x=NACCESSPOLICY:SINGLEJOB
 cd $PBS_O_WORKDIR
-sh run_new_adaptive_compare.sh
+sh run_many_adaptive_compare.sh
 #sh run_hmcs.sh
 #sh run_hmcs_latency.sh
