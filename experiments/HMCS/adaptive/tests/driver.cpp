@@ -213,7 +213,7 @@ int main(int argc, char *argv[]){
         myTicksEnd = 0;
         sensitivityTime = 0;
         
-        sensitivityTime = MILLI_SEC(HOW_LONG_MS)/10.0;
+        sensitivityTime = MILLI_SEC(HOW_LONG_MS);
         
         for(int round = 0; round < NITER; round ++) {
             
