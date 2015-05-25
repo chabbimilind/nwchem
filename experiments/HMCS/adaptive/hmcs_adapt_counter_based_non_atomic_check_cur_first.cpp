@@ -171,7 +171,7 @@ struct HMCSLock{
             // NO KNOWN SUCCESSORS / DESCENDENTS
             // reached threshold and have next level
             // release to next level
-            HMCSLock<level - 1>::Release(L->parent, &(L->node));
+            HMCSLock<level - 1>::ReleaseHelper(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
             // Tap successor at this level and ask to spin acquire next level lock
             return NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
@@ -184,7 +184,7 @@ struct HMCSLock{
             return CONTENDED; // Released
         }
         // No known successor, so release
-        HMCSLock<level - 1>::Release(L->parent, &(L->node));
+        HMCSLock<level - 1>::ReleaseHelper(L->parent, &(L->node));
         COMMIT_ALL_WRITES();
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
@@ -331,9 +331,6 @@ struct HMCSAdaptiveLock{
             return;
         }
         
-        tookFastPath = false;
-
-        
 #ifdef PROFILE
         stats[curDepth]++;
 #endif
@@ -352,6 +349,7 @@ struct HMCSAdaptiveLock{
     inline void Release(QNode *I){
         if(tookFastPath) {
             HMCSLock<1>::Release(rootNode, I);
+	    tookFastPath = false;
             return;
         }
         
