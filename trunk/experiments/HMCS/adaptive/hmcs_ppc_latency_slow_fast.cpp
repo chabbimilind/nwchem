@@ -144,7 +144,7 @@ struct HMCSLock{
             // NO KNOWN SUCCESSORS / DESCENDENTS
             // reached threshold and have next level
             // release to next level
-            HMCSLock<level - 1>::Release(L->parent, &(L->node));
+            HMCSLock<level - 1>::ReleaseHelper(L->parent, &(L->node));
             COMMIT_ALL_WRITES();
             // Tap successor at this level and ask to spin acquire next level lock
             NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
@@ -158,7 +158,7 @@ struct HMCSLock{
             return; // Released
         }
         // No known successor, so release
-        HMCSLock<level - 1>::Release(L->parent, &(L->node));
+        HMCSLock<level - 1>::ReleaseHelper(L->parent, &(L->node));
         COMMIT_ALL_WRITES();
         // Tap successor at this level and ask to spin acquire next level lock
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
@@ -232,13 +232,12 @@ struct HMCSLockWrapper{
     }
     inline void Acquire(QNode *I){
         // Fast path ... If root is null, enqueue there
-        if(rootNode->lock == NULL) {
+        if(curNode->lock == NULL && rootNode->lock == NULL) {
              tookFastPath = true;
              HMCSLock<1>::Acquire(rootNode, I);
              return;
         }
 
-        tookFastPath = false;
         //myAcquire(curNode, I);
         switch(curDepth){
             case 1:  HMCSLock<1>::Acquire(curNode, I); break;
@@ -253,6 +252,7 @@ struct HMCSLockWrapper{
     inline void Release(QNode *I){
         if(tookFastPath) {
              HMCSLock<1>::Release(rootNode, I);
+             tookFastPath = false;
              return;
         }
         //myRelease(curNode, I);
@@ -479,6 +479,7 @@ int main(int argc, char *argv[]){
         PrintAffinity(tid);
 #endif
         HMCSLockWrapper * hmcs = LockInit(tid, size, levels, participantsAtLevel);
+        AllocateCS(tid, numThreads);
         // Warmup
         QNode me;
         const int warmupRounds = 20;

@@ -1,5 +1,5 @@
 #ifndef __UTIL_H__
-#define __UTIL_H_
+#define __UTIL_H__
 
 
 #include <stdio.h>
@@ -153,7 +153,7 @@ void static AllocateCS(int tid, int numThreads){
 
 
 // perform some dummy operations and spend time when outside critical section
-uint64_t DoWorkOutsideCS(struct drand48_data * randSeedbuffer){
+void DoWorkOutsideCS(struct drand48_data * randSeedbuffer){
 #define MAX_SLEEP (1000)
 #define MIN_SLEEP (3000)
         double randNum;
