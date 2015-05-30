@@ -324,7 +324,6 @@ struct HMCSAdaptiveLock{
             return;
         }
         
-        tookFastPath = false;
 
         
 #ifdef PROFILE
@@ -345,6 +344,7 @@ struct HMCSAdaptiveLock{
     inline void Release(QNode *I){
         if(tookFastPath) {
             HMCSLock<1>::Release(rootNode, I);
+            tookFastPath = false;
             return;
         }
         
