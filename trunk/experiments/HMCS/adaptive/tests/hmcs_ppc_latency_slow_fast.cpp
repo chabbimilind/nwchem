@@ -66,8 +66,6 @@ struct HNode{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
-
-
 int threshold;
 int * thresholdAtLevel;
 
@@ -207,13 +205,12 @@ typedef void (*AcquireFP) (HNode *, QNode *);
 typedef void (*ReleaseFP) (HNode *, QNode *);
 struct HMCSLockWrapper{
     HNode * curNode;
+    HNode * rootNode;
     AcquireFP myAcquire;
     ReleaseFP myRelease;
     int curDepth;
-    
-    inline void Reset(){}
-
-    HMCSLockWrapper(HNode * h, int depth) : curNode(h), curDepth(depth) {
+    bool tookFastPath;
+    HMCSLockWrapper(HNode * h, int depth) : tookFastPath(false), curNode(h), curDepth(depth) {
         switch(curDepth){
             case 1:  myAcquire = HMCSLock<1>::Acquire; myRelease = HMCSLock<1>::Release; break;
             case 2:  myAcquire = HMCSLock<2>::Acquire; myRelease = HMCSLock<2>::Release; break;
@@ -222,8 +219,19 @@ struct HMCSLockWrapper{
             case 5:  myAcquire = HMCSLock<5>::Acquire; myRelease = HMCSLock<5>::Release; break;
             default: assert(0 && "NYI");
         }
+        // Set the root node
+        HNode * tmp;
+        for(tmp = curNode; tmp->parent != NULL; tmp = tmp->parent);
+        rootNode = tmp;
     }
     inline void Acquire(QNode *I){
+        // Fast path ... If root is null, enqueue there
+        if(curNode->lock == NULL && rootNode->lock == NULL) {
+             tookFastPath = true;
+             HMCSLock<1>::Acquire(rootNode, I);
+             return;
+        }
+
         //myAcquire(curNode, I);
         switch(curDepth){
             case 1:  HMCSLock<1>::Acquire(curNode, I); break;
@@ -236,6 +244,11 @@ struct HMCSLockWrapper{
     }
     
     inline void Release(QNode *I){
+        if(tookFastPath) {
+             HMCSLock<1>::Release(rootNode, I);
+             tookFastPath = false;
+             return;
+        }
         //myRelease(curNode, I);
         switch(curDepth){
             case 1:  HMCSLock<1>::Release(curNode, I); break;
@@ -311,6 +324,7 @@ HMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * participan
     return new HMCSLockWrapper(lockLocations[tid/participantsAtLevel[0]], levels);
     
 }
+
 
 #define LOCKNAME HMCSLockWrapper
 
