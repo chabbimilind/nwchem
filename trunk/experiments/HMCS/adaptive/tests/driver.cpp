@@ -173,6 +173,14 @@ int main(int argc, char *argv[]){
     double resultArray[NELEMS(randomContention)] = {0};
     
     double sum = 0;
+#pragma omp parallel 
+{
+	for(int i = 0 ; i < 10; i++)
+	{
+	#pragma omp barrier
+	}	
+}
+
 #pragma omp parallel
     {
         int tid = omp_get_thread_num();

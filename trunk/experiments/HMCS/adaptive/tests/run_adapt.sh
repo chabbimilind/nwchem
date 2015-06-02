@@ -22,7 +22,7 @@ level3TH=1
 for i in 2 4
 #for i in 4 
 do
-for j in 1 10 100
+for j in 0.001 0.01 0.1 1 10 100
 #for j in 1
 do
 $CXX -DHOW_LONG_MS=$j -DMAX_DATA=$i -DNITER=4 $FLAGS -DTHE_WAIT="0" -o hmcs_ppc hmcs_ppc_latency.cpp -lrt  &
@@ -33,12 +33,20 @@ $CXX -DHOW_LONG_MS=$j -DMAX_DATA=$i -DNITER=4 $FLAGS -DTHE_WAIT="0" -o hmcs_adap
 $CXX -DHOW_LONG_MS=$j -DMAX_DATA=$i -DNITER=4 $FLAGS -DTHE_WAIT="0" -o hmcs_adapt_instantaneous_slow_fast_reuse_next hmcs_adapt_instantaneous_slow_fast_reuse_next.cpp -lrt  &
 wait 
 time ./hmcs_ppc $mustBeAMultiple $timeout $nIter 128 1 128 $level3TH
+echo "-------"
 time ./hmcs_ppc $mustBeAMultiple $timeout $nIter 128 2 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_ppc $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_ppc_latency_slow_fast $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_adapt_eager_no_fastpath $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_adapt_lazy_no_fastpath $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_adapt_instantaneous_slow_fast_reuse_next $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 time ./hmcs_adapt_counter_based_check_cur_first $mustBeAMultiple $timeout $nIter 128 3 4 $level1TH 32  $level2TH 128 $level3TH
+echo "-------"
 done
 done

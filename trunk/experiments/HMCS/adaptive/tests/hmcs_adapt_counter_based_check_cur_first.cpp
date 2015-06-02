@@ -241,6 +241,7 @@ struct HMCSAdaptiveLock{
     bool hasCounterChanged;
     int8_t hysteresis;
     HNode * rootNode;
+    bool tookFastPath;
 #ifdef HEAVY_WEIGHT_COUNTER
     //NOP
 #else
@@ -267,16 +268,13 @@ struct HMCSAdaptiveLock{
         rootNode = tmp;
     }
     
-    inline void Reset(){
+    void Reset(){
         hysteresis=STAY_PUT;
         curNode=leafNode;
         childNode=NULL;
         curDepth=maxLevels;
-        isUncontendedAcquire = false;
-        isUncontendedRelease = false;
-        haveChildContentionOnEntry = false;
-        haveChildContentionOnExit =false;
-        
+        tookFastPath = false;
+
 #ifdef PROFILE
         for(int i = 0 ; i < MAX_STATS; i++)
         stats[i] = 0;
@@ -320,6 +318,14 @@ struct HMCSAdaptiveLock{
     
     inline void Acquire(QNode *I){
         
+        if(curNode->lock == NULL && rootNode->lock == NULL) {
+            tookFastPath = true;
+            HMCSLock<1>::Acquire(rootNode, I);
+            return;
+        }
+        
+
+        
 #ifdef PROFILE
         stats[curDepth]++;
 #endif
@@ -336,6 +342,11 @@ struct HMCSAdaptiveLock{
     }
     
     inline void Release(QNode *I){
+        if(tookFastPath) {
+            HMCSLock<1>::Release(rootNode, I);
+            tookFastPath = false;
+            return;
+        }
         
         SignalOnExit();
         switch(curDepth){
@@ -418,6 +429,7 @@ HMCSAdaptiveLock * LockInit(int tid, int maxThreads, int levels, int * participa
         //lockLocations = new HNode*[totalLocksNeeded];
         // use memalign for alignemnt new does not ensure alignment
         lockLocations = (HNode**)memalign(CACHE_LINE_SIZE, sizeof(HNode*) * totalLocksNeeded);
+        COMMIT_ALL_WRITES();
     }
     
     // Lock at curLevel l will be initialized by a designated master
@@ -436,9 +448,14 @@ HMCSAdaptiveLock * LockInit(int tid, int maxThreads, int levels, int * participa
             //curLock->node = new QNode();
             curLock->lock = NULL;
             lockLocations[lockLocation] = curLock;
+	    COMMIT_ALL_WRITES();
+
+            
         }
     }
 #pragma omp barrier
+    COMMIT_ALL_WRITES();
+
     // setup parents
     lastLockLocationEnd = 0;
     for(int curLevel = 0 ; curLevel < levels - 1; curLevel++){
@@ -448,14 +465,16 @@ HMCSAdaptiveLock * LockInit(int tid, int maxThreads, int levels, int * participa
             lastLockLocationEnd += maxThreads/participantsAtLevel[curLevel];
             int parentLockLocation = lastLockLocationEnd + tid/participantsAtLevel[curLevel+1];
             lockLocations[lockLocation]->parent = lockLocations[parentLockLocation];
+            COMMIT_ALL_WRITES();
         }
     }
 #pragma omp barrier
+    COMMIT_ALL_WRITES();
+
     // return the lock to each thread
     return new HMCSAdaptiveLock(lockLocations[tid/participantsAtLevel[0]], levels);
     
 }
-
 
 #define LOCKNAME HMCSAdaptiveLock
 

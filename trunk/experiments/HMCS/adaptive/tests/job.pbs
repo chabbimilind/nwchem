@@ -1,6 +1,6 @@
 #PBS -N HMCS
 #PBS -q serial
-#PBS -l nodes=1:ppn=32,walltime=2:00:00
+#PBS -l nodes=1:ppn=32,walltime=4:00:00
 #PBS -M milisoft@gmail.com
 #PBS -m abe
 #PBS -j oe
