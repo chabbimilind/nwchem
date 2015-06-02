@@ -224,6 +224,8 @@ struct HMCSLockWrapper{
         for(tmp = curNode; tmp->parent != NULL; tmp = tmp->parent);
         rootNode = tmp;
     }
+    inline void Reset(){}
+
     inline void Acquire(QNode *I){
         // Fast path ... If root is null, enqueue there
         if(curNode->lock == NULL && rootNode->lock == NULL) {
@@ -304,10 +306,10 @@ HMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * participan
             //curLock->node = new QNode();
             curLock->lock = NULL;
             lockLocations[lockLocation] = curLock;
-            
         }
     }
 #pragma omp barrier
+
     // setup parents
     lastLockLocationEnd = 0;
     for(int curLevel = 0 ; curLevel < levels - 1; curLevel++){
@@ -320,6 +322,7 @@ HMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * participan
         }
     }
 #pragma omp barrier
+
     // return the lock to each thread
     return new HMCSLockWrapper(lockLocations[tid/participantsAtLevel[0]], levels);
     

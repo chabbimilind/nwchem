@@ -266,7 +266,7 @@ struct HMCSAdaptiveLock{
         rootNode = tmp;
     }
     
-    void Reset(){
+    inline void Reset(){
         hysteresis=STAY_PUT;
         curNode=leafNode;
         childNode=NULL;
@@ -389,10 +389,10 @@ HMCSAdaptiveLock * LockInit(int tid, int maxThreads, int levels, int * participa
             //curLock->node = new QNode();
             curLock->lock = NULL;
             lockLocations[lockLocation] = curLock;
-            
         }
     }
 #pragma omp barrier
+
     // setup parents
     lastLockLocationEnd = 0;
     for(int curLevel = 0 ; curLevel < levels - 1; curLevel++){
@@ -405,6 +405,7 @@ HMCSAdaptiveLock * LockInit(int tid, int maxThreads, int levels, int * participa
         }
     }
 #pragma omp barrier
+
     // return the lock to each thread
     return new HMCSAdaptiveLock(lockLocations[tid/participantsAtLevel[0]], levels);
     
