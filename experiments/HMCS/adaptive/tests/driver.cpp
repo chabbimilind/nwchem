@@ -168,8 +168,11 @@ int main(int argc, char *argv[]){
     
 //    int randomContention [] =  {128, 2, 128, 2, 4, 16, 64, 16, 4, 1, 16, 4, 8, 16, 8, 1, 2, 4, 32, 64, 32, 8, 32, 8, 32, 8, 4, 16, 1, 4, 1, 16, 1, 2, 128, 2, 64, 1, 8, 4, 16, 2, 128, 32, 1, 32, 64, 8, 16, 8, 64, 128, 64, 2, 1, 32, 2, 32, 128, 64, 128, 4, 128, 64};
    
-    
+#ifdef BLACKLIGHT 
+    int randomContention [] =  {1, 2, 64, 4, 128, 16, 1, 16, 8, 16, 64, 8, 256, 128, 64, 32, 2, 4, 1, 32, 8, 2, 1, 256, 32, 256, 2, 256, 64, 1, 4, 8, 1, 8, 4, 16, 2, 32, 128, 8, 32, 16, 32, 4, 256, 4, 64, 16, 4, 2, 128, 2, 16, 128, 1, 64, 256, 16, 256, 8, 128, 4, 32, 64, 2, 8, 64, 128, 32, 1, 128, 256, 1, 256};
+#else
     int randomContention [] =  {1, 128, 4, 1, 2, 1, 16, 64, 2, 128, 16, 2, 16, 128, 1, 4, 64, 8, 1, 8, 32, 4, 8, 16, 32, 1, 32, 16, 4, 128, 8, 4, 16, 1, 64, 1, 64, 128, 32, 128, 2, 32, 2, 8, 2, 4, 32, 64, 16, 8, 128, 64, 4, 2, 64, 32, 8, 64, 8};
+#endif   
     double resultArray[NELEMS(randomContention)] = {0};
     
     double sum = 0;
@@ -194,12 +197,17 @@ int main(int argc, char *argv[]){
         struct drand48_data randSeedbuffer;
         srand48_r(tid, &randSeedbuffer);
         
+#define BL_CLK_SPD     (2266334000.0)
 #define POWER7_CLK_SPD (3860000000.0)
-        
-#define CLK_SPD POWER7_CLK_SPD
-        
+       
+#ifdef BLACKLIGHT 
+	#define CLK_SPD BL_CLK_SPD
+#else 
+	 #define CLK_SPD POWER7_CLK_SPD       
+#endif
 #define MILLI_SEC(n) (n * CLK_SPD/1000)
-        
+     
+   
 #define MICRO_SEC(n) (n * CLK_SPD/1000000)
         
 #define SEC(n) (n * CLK_SPD)

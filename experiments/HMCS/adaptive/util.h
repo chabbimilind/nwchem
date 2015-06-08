@@ -179,6 +179,9 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 
 /* taken from https://computing.llnl.gov/tutorials/pthreads/man/pthread_setaffinity_np.txt */
 void PrintAffinity(int tid){
+#ifdef BLACKLIGHT
+    return;
+#endif
     int s, j;
     cpu_set_t cpuset;
     pthread_t thread;
