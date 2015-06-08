@@ -71,7 +71,7 @@ static inline bool PPCBoolCompareAndSwap(volatile int64_t * addr, int64_t oldVal
 #elif defined(__x86_64__)
 #define FORCE_INS_ORDERING() do{}while(0)
 #define COMMIT_ALL_WRITES() do{}while(0)
-#define GET_TICK(var) assert(0 && "NYI")
+#define GET_TICK(var) var = __rdtsc()
 #else
 assert( 0 && "unsupported platform");
 #endif
@@ -179,6 +179,9 @@ do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
 
 /* taken from https://computing.llnl.gov/tutorials/pthreads/man/pthread_setaffinity_np.txt */
 void PrintAffinity(int tid){
+#ifdef BLACKLIGHT
+    return;
+#endif
     int s, j;
     cpu_set_t cpuset;
     pthread_t thread;
