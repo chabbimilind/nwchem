@@ -9,8 +9,12 @@ $S/spin -a  ${F}
 #gcc -O3 -DVECTORSZ=2400 -DSAFETY -DCOLLAPSE  -DMEMLIM=236000 -DNCORE=32 -o pan pan.c
 #gcc -O3  -DVECTORSZ=2400 -DSAFETY -DCOLLAPSE  -DMEMLIM=251000 -DNCORE=1 -o ${F}.pan pan.c
 #gcc -O3 -DVECTORSZ=2000 -DCOLLAPSE -DSAFETY -DMEMLIM=950000 -DNCORE=8   pan.c  -o ${F}.pan
-gcc -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=144 pan.c  -o ${F}.pan -DMEMLIM=23068672 -DSEP_STATE
+#gcc -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=144 pan.c  -o ${F}.pan -DMEMLIM=23068672 
+#gcc -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=16 pan.c  -o ${F}.pan -DSFH -DMEMLIM=1000000
 #gcc  -O3 -DBITSTATE -DVECTORSZ=9999 -DSAFETY -o pan pan.c
 #taskset -c 0-17 ./${F}.pan
-sudo numactl --localalloc ./${F}.pan
+#time sudo ./${F}.pan
+gcc -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=23068672 -DUSE_HUGE_PAGE
+time sudo ./${F}.pan
+#sudo numactl --localalloc ./${F}.pan
 $S/spin -t  -l -p ${F}
