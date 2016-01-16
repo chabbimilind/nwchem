@@ -86,6 +86,9 @@ static inline void CleanupReverseChain(QNode * node){
     while (node) {
         QNode * prev = node->next; /* here next is actually the prev */
         //I->status = READY_TO_USE;
+        // All writes issued before must commit before declaring that the node is ready for reuse.
+        // We need this because, we don't want the update to the "next" field reach after the owner of the node sees READY_TO_USE status
+        COMMIT_ALL_WRITES();
         AtomicWrite(&(node->status),READY_TO_USE);
         node = prev;
     }
@@ -110,6 +113,12 @@ static inline void DealWithRestOfHorizontal(HNode * & L, QNode * &I, QNode * & p
                     prev = I;
                     I = succ;
                 } else {
+                    // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                    // This is because, we would not have updated the "next" field of this "I" node.
+                    // Hence, there is no reordering between status and next fields.
+                    // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                    // However, there is one worry, can the update to the "status" which was "either ACQUIRE_PARENT or a legal passing value
+                    // get reordered with READY_TO_USE?
                     AtomicWrite(&(I->status),READY_TO_USE);
                     return;
                 }
@@ -120,6 +129,12 @@ static inline void DealWithRestOfHorizontal(HNode * & L, QNode * &I, QNode * & p
                  */
             }
         } else {
+            // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+            // This is because, we would not have updated the "next" field of this "I" node.
+            // Hence, there is no reordering between status and next fields.
+            // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+            // However, there is one worry, can the update to the "status" which was "either ACQUIRE_PARENT or a legal passing value
+            // get reordered with READY_TO_USE?
             AtomicWrite(&(I->status),READY_TO_USE);
             return;
         }
@@ -139,12 +154,22 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
                 prev = I;
                 I = succ;
             } else {
+                // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                // This is because, we would not have updated the "next" field of this "I" node.
+                // Hence, there is no reordering between status and next fields.
+                // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                // However, there is one worry, can the update to the "status" which was ACQUIRE_PARENT in the SWAP operation
+                // get reordered with READY_TO_USE? I hope not!
                 AtomicWrite(&(I->status),READY_TO_USE);
                 break;
             }
         } else {
             HandleVerticalAbortion(L->parent, &(L->node), abortedNode);
             // back from vertical abortion
+            // We most certainly need  COMMIT_ALL_WRITES();  here.
+            // HandleVerticalAbortion() would have written to the parent level shared node and possibly its uncles.
+            // Those changes outght to be visible to a peer when it climbs to the parent level.
+            COMMIT_ALL_WRITES();
             DealWithRestOfHorizontal(L, I, prev);
             break;
         }
@@ -191,8 +216,14 @@ struct HMCS {
             // I am the first one at this level
             // begining of cohort
         GOT_LOCK:
-            
+            // Milind: I expect this write to not get reordered with a previous update to I->status since it is the same location
             I->status = COHORT_START;
+            // Milind: I am not sure whether there is need to issue a lwsync fence here 
+            // What if I abort at an ancestor, and pass the lock to one of my descendents? Will the descendents see this update to I->status?
+            // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
+            // the lock was passed to a descendent.
+            // Does this mean, we should issue a fence just before starting the abort handling?
+
             // Acquire at next level if not at the top level
             return HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
         } else {
@@ -201,9 +232,20 @@ struct HMCS {
             if(SWAP(&(pred->next), I) == CANT_WAIT_FOR_NEXT){
                 // Free pred to be reused
                 AtomicWrite(&(pred->status), READY_TO_USE);
+                // Milind: Is this necessary to ensure that this write strictly preceeds the the next write I->status?
+		// I am not sure.
+                
+ 
                 // This level is acquired, acquire parent ...
                 // beginning of cohort
+                // Milind: I expect this write to not get reordered with a previous update to I->status since it is the same location
                 I->status = COHORT_START;
+                // Milind: I am not sure whether there is need to issue a lwsync fence here 
+                // What if I abort at an ancestor, and pass the lock to one of my descendents? Will the descendents see this update to I->status?
+                // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
+                // the lock was passed to a descendent.
+                // Does this mean, we should issue a fence just before starting the abort handling?
+
                 // This means this level is acquired and we can start the next level
                 return HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
             }
@@ -217,6 +259,13 @@ struct HMCS {
                 if(myStatus == ACQUIRE_PARENT) {
                     // beginning of cohort
                     I->status = COHORT_START;
+
+                    // Milind: I am not sure whether there is need to issue a lwsync fence here 
+                    // What if I abort at an ancestor, and pass the lock to one of my descendents? Will the descendents see this update to I->status?
+                    // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
+                    // the lock was passed to a descendent.
+                    // Does this mean, we should issue a fence just before starting the abort handling?
+
                     // This means this level is acquired and we can start the next level
                     return HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
                 }
@@ -227,10 +276,16 @@ struct HMCS {
             prevStatus = SWAP(&(I->status), ABORTED);
             if(prevStatus < ACQUIRE_PARENT){
                 I->status = prevStatus;
+                //Milind: I don't think we need lwsync here because we acquired the lock and there will be a lwsync at the end of the CS.
                 return NULL; // got lock;
             }
             if(prevStatus == ACQUIRE_PARENT) {
                 I->status = COHORT_START;
+                // Milind: I am not sure whether there is need to issue a lwsync fence here 
+                // What if I abort at an ancestor, and pass the lock to one of my descendents? Will the descendents see this update to I->status?
+                // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
+                // the lock was passed to a descendent.
+                // Does this mean, we should issue a fence just before starting the abort handling?
                 return HMCS<level-1>::Acquire(L->parent, &(L->node), patience);
             } else {
                 return I;
@@ -241,6 +296,7 @@ struct HMCS {
     static inline bool AcquireWraper(HNode * L, QNode *I, uint64_t patience=UINT64_MAX){
         QNode * abortedNode = HMCS<level>::Acquire(L, I, patience);
         if (abortedNode) {
+            // Milind: This is a very tricky place. All indications are that we need a lwsync (COMMIT_ALL_WRITES()) before starting to handle the abort.
             HandleVerticalAbortion(L, I, abortedNode);
             return false;
         }
@@ -261,6 +317,12 @@ struct HMCS {
                     prev = I;
                     I = succ;
                 } else {
+                    // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                    // This is because, we would not have updated the "next" field of this "I" node.
+                    // Hence, there is no reordering between status and next fields.
+                    // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                    // However, there is one worry, can the update to the "status" which was ACQUIRE_PARENT in the SWAP operation
+                    // get reordered with READY_TO_USE? I hope not!
                     AtomicWrite(&(I->status),READY_TO_USE);
                     break;
                 }
@@ -336,6 +398,11 @@ struct HMCS<1> {
             if(SWAP(&(pred->next), I) == CANT_WAIT_FOR_NEXT){
                 // Free pred to be reused
                 AtomicWrite(&(pred->status), READY_TO_USE);
+
+                // Milind: Is this necessary to ensure that this write strictly precedes the the next write I->status?
+                // I am not sure.
+
+
                 // This level is acquired ...
                 I->status = UNLOCKED;
                 return NULL; // got lock;
@@ -357,6 +424,13 @@ struct HMCS<1> {
             return I;
         } else {
             I->status = UNLOCKED;
+            // Milind: I am not sure whether there is need to issue a lwsync fence here 
+            // What if I abort here ancestor, and pass the lock to one of my descendants? Will the descendants see this update to I->status?
+            // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
+            // the lock was passed to a descendent.
+            // Does this mean, we should issue a fence just before starting the abort?
+            // More note: I don't think we need the same lwsync at the Acquire<1> level since no one else will share the I node.
+
         }
         return NULL;
     }
@@ -364,6 +438,7 @@ struct HMCS<1> {
     static inline bool AcquireWraper(HNode * L, QNode *I, uint64_t patience=UINT64_MAX){
         QNode * abortedNode = Acquire(L, I, patience);
         if (abortedNode) {
+            // Milind: This is a very tricky place. All indications are we need an lwsync() before beginning an abort. But this one does not really start a handling an abort.
             return false;
         }
         FORCE_INS_ORDERING();
@@ -384,6 +459,12 @@ struct HMCS<1> {
                         prev = I;
                         I = succ;
                     } else {
+                        // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                        // This is because, we would not have updated the "next" field of this "I" node.
+                        // Hence, there is no reordering between status and next fields.
+                        // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                        // However, there is one worry, can the update to the "status" which was UNLOCKED
+                        // get reordered with READY_TO_USE?
                         AtomicWrite(&(I->status),READY_TO_USE);
                         return;
                     }
@@ -394,6 +475,12 @@ struct HMCS<1> {
                      */
                 }
             } else {
+                // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                // This is because, we would not have updated the "next" field of this "I" node.
+                // Hence, there is no reordering between status and next fields.
+                // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                // However, there is one worry, can the update to the "status" which was UNLOCKED
+                // get reordered with READY_TO_USE?
                 AtomicWrite(&(I->status),READY_TO_USE);
                 return;
             }
@@ -412,6 +499,13 @@ struct HMCS<1> {
                     prev = I;
                     I = succ;
                 } else {
+		    // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
+                    // This is because, we would not have updated the "next" field of this "I" node.
+                    // Hence, there is no reordering between status and next fields.
+                    // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
+                    // However, there is one worry, can the update to the "status" which was UNLOCKED in the SWAP operation
+                    // get reordered with READY_TO_USE? I hope not!
+ 
                     AtomicWrite(&(I->status),READY_TO_USE);
                     break;
                 }
