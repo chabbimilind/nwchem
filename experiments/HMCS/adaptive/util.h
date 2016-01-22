@@ -191,7 +191,17 @@ void PrintAffinity(int tid){
     /* Set affinity mask to include CPUs tid */
     
     CPU_ZERO(&cpuset);
+#ifdef PUFF
+ // SMT peers are far away!!
+ if( tid & 1 == 1)
+    CPU_SET(288+tid/2, &cpuset);
+ else
+    CPU_SET(tid/2, &cpuset);
+#else 
     CPU_SET(1*tid, &cpuset);
+#endif
+
+
     if(tid == 0 )
         printf("CPU_SET(1*tid, &cpuset);\n");
     
