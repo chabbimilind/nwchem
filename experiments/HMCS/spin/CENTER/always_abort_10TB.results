@@ -1,0 +1,8 @@
+nohup: ignoring input
++ S=/mnt/fileserver-5/a/users/mc29/software/machines/dl580/Spin/Src6.4.4/
++ F=2_non_root_level_3_at_leaf_3_at_non_leaf_always_abort-CENTER.pml
++ rm -f 2_non_root_level_3_at_leaf_3_at_non_leaf_always_abort-CENTER.pml.trail
++ rm -f pan.b pan.c pan.h pan.m pan.p pan.t
++ /mnt/fileserver-5/a/users/mc29/software/machines/dl580/Spin/Src6.4.4//spin -a 2_non_root_level_3_at_leaf_3_at_non_leaf_always_abort-CENTER.pml
++ gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY -DNCORE=1 pan.c -o 2_non_root_level_3_at_leaf_3_at_non_leaf_always_abort-CENTER.pml.pan -DSFH -DMEMLIM=13068672 -DUSE_HUGE_PAGE
++ sudo numactl --cpunodebind=8 --membind=8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7 ./2_non_root_level_3_at_leaf_3_at_non_leaf_always_abort-CENTER.pml.pan -w36

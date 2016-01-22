@@ -14,7 +14,11 @@ $S/spin -a  ${F}
 #gcc  -O3 -DBITSTATE -DVECTORSZ=9999 -DSAFETY -o pan pan.c
 #taskset -c 0-17 ./${F}.pan
 #time sudo ./${F}.pan
-gcc -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=23068672 -DUSE_HUGE_PAGE
-time sudo ./${F}.pan
+### 22 TB gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=23068672 -DUSE_HUGE_PAGE
+#appx 10 TB
+#gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=13068672 -DUSE_HUGE_PAGE
+#appx 5  TB
+gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=5068672 -DUSE_HUGE_PAGE
+time sudo numactl --cpunodebind=8 --membind=8,9,10,11  ./${F}.pan
 #sudo numactl --localalloc ./${F}.pan
 $S/spin -t  -l -p ${F}
