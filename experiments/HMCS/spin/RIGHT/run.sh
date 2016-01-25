@@ -16,12 +16,12 @@ $S/spin -a  ${F}
 #time sudo ./${F}.pan
 ### 22 TB gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=23068672 -DUSE_HUGE_PAGE
 #appx 10 TB
-#gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=13068672 -DUSE_HUGE_PAGE
+gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=13068672 -DUSE_HUGE_PAGE
 #appx 5  TB
 #gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=5068672 
 #time numactl --cpunodebind=8 --membind=8,9,10,11  ./${F}.pan
-gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=5068672 -DUSE_HUGE_PAGE
+#gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=5068672 -DUSE_HUGE_PAGE
 #time sudo numactl --cpunodebind=14 --membind=14,15,13,12  ./${F}.pan
-time sudo numactl --cpunodebind=8 --membind=8,9,10,11  ./${F}.pan
+time sudo numactl --cpunodebind=8 --preferred=8  ./${F}.pan -w34
 #sudo numactl --localalloc ./${F}.pan
 $S/spin -t  -l -p ${F}

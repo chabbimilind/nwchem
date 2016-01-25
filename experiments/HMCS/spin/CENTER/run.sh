@@ -20,6 +20,6 @@ gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400
 #appx 5  TB
 #gcc -mtune=native -march=native -Wfatal-errors -O3 -DNOBOUNDCHECK -DVECTORSZ=400 -DCOLLAPSE -DSAFETY    -DNCORE=1 pan.c  -o ${F}.pan -DSFH -DMEMLIM=5068672 -DUSE_HUGE_PAGE
 #time sudo numactl --cpunodebind=12 --membind=12,13,14,15  ./${F}.pan -w36
-time sudo numactl --cpunodebind=8  --membind=8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7  ./${F}.pan -w35
+time sudo numactl --cpunodebind=0  --preferred=0   ./${F}.pan -w34
 #sudo numactl --localalloc ./${F}.pan
 $S/spin -t  -l -p ${F}
