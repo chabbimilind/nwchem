@@ -1,0 +1,1692 @@
+##########################################
++ . run_abort_splay_tree_compact.sh
+++ set -x
+++ FLAGS='-std=c++11 -fopenmp -Ofast  -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF'
+++ CXX=g++
+++ mustBeAMultiple=1
+++ throughput=512
+++ timeout=30
+++ nIter=99999999999990
+++ level1TH=64
+++ level2TH=64
+++ level3TH=64
+++ level4TH=1
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o hmcs_abort hmcs_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0
+hmcs_abort.cpp: In function ‘void DealWithRestOfHorizontal(HNode*&, QNode*&, QNode*&, int64_t)’:
+hmcs_abort.cpp:106:47: warning: NULL used in arithmetic [-Wpointer-arith]
+                 if (AtomicLoad(&(I->next)) != NULL)
+                                               ^
+hmcs_abort.cpp: In static member function ‘static void HMCS<1>::DealWithRestOfLevel1(HNode*&, QNode*&, QNode*&, int64_t)’:
+hmcs_abort.cpp:461:50: warning: NULL used in arithmetic [-Wpointer-arith]
+                     if(AtomicLoad(&(I->next)) != NULL)
+                                                  ^
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o hmcs_ppc_latency hmcs_ppc_latency.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o TATAS TATAS.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o CLH_abort CLH_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o CLH_NB_abort CLH_NB_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0 -ltcmalloc
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o MCS_abort MCS_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o MCS_NB_abort MCS_NB_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0 -ltcmalloc
+++ g++ -std=c++11 -fopenmp -Ofast -mtune=native -march=native -g -DSPLAY_TREE_DRIVER -DPUFF -o A_BO_CLH_NB_abort A_BO_CLH_NB_abort.cpp -lrt -DDOWORK -DMAX_DATA=2 -DTHE_WAIT=0 -ltcmalloc
+++ nThreads=576
+++ export OMP_NUM_THREADS=576
+++ OMP_NUM_THREADS=576
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999986
+ totalExecutedIters = 900633736
+ totalSuccessfulIters = 900633736
+
+ throughPut = 2.90527e+07
+
+ throughPutSuccessfulAcq = 2.90527e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 958449096
+ totalSuccessfulIters = 586602756
+
+ throughPut = 3.09177e+07
+
+ throughPutSuccessfulAcq = 1.89227e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999987
+ totalExecutedIters = 328583995
+ totalSuccessfulIters = 84157598
+
+ throughPut = 1.05995e+07
+
+ throughPutSuccessfulAcq = 2.71476e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999988
+ totalExecutedIters = 376485466
+ totalSuccessfulIters = 39660335
+
+ throughPut = 1.21447e+07
+
+ throughPutSuccessfulAcq = 1.27937e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999995
+ totalExecutedIters = 401652686
+ totalSuccessfulIters = 18403251
+
+ throughPut = 1.29565e+07
+
+ throughPutSuccessfulAcq = 593653
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999978
+ totalExecutedIters = 452086353
+ totalSuccessfulIters = 9627331
+
+ throughPut = 1.45834e+07
+
+ throughPutSuccessfulAcq = 310559
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 431717220
+ totalSuccessfulIters = 7834519
+
+ throughPut = 1.39264e+07
+
+ throughPutSuccessfulAcq = 252726
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000028
+ totalExecutedIters = 863188851
+ totalSuccessfulIters = 12129334
+
+ throughPut = 2.78448e+07
+
+ throughPutSuccessfulAcq = 391268
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000028
+ totalExecutedIters = 1649975654
+ totalSuccessfulIters = 12066803
+
+ throughPut = 5.3225e+07
+
+ throughPutSuccessfulAcq = 389251
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000049
+ totalExecutedIters = 3177638727
+ totalSuccessfulIters = 11783101
+
+ throughPut = 1.02504e+08
+
+ throughPutSuccessfulAcq = 380099
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 0 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=0 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000028
+ totalExecutedIters = 5618069821
+ totalSuccessfulIters = 9684539
+
+ throughPut = 1.81228e+08
+
+ throughPutSuccessfulAcq = 312404
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999986
+ totalExecutedIters = 898646783
+ totalSuccessfulIters = 898646783
+
+ throughPut = 2.89886e+07
+
+ throughPutSuccessfulAcq = 2.89886e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 951576428
+ totalSuccessfulIters = 582843488
+
+ throughPut = 3.0696e+07
+
+ throughPutSuccessfulAcq = 1.88014e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 326918172
+ totalSuccessfulIters = 82628220
+
+ throughPut = 1.05458e+07
+
+ throughPutSuccessfulAcq = 2.66543e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999968
+ totalExecutedIters = 392630992
+ totalSuccessfulIters = 40161924
+
+ throughPut = 1.26655e+07
+
+ throughPutSuccessfulAcq = 1.29555e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999983
+ totalExecutedIters = 416795503
+ totalSuccessfulIters = 18763641
+
+ throughPut = 1.3445e+07
+
+ throughPutSuccessfulAcq = 605279
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999980
+ totalExecutedIters = 451853210
+ totalSuccessfulIters = 9617357
+
+ throughPut = 1.45759e+07
+
+ throughPutSuccessfulAcq = 310238
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 448724898
+ totalSuccessfulIters = 8332724
+
+ throughPut = 1.4475e+07
+
+ throughPutSuccessfulAcq = 268798
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000004
+ totalExecutedIters = 844488273
+ totalSuccessfulIters = 11768804
+
+ throughPut = 2.72416e+07
+
+ throughPutSuccessfulAcq = 379639
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000008
+ totalExecutedIters = 1622378486
+ totalSuccessfulIters = 11759938
+
+ throughPut = 5.23348e+07
+
+ throughPutSuccessfulAcq = 379353
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000040
+ totalExecutedIters = 3163307602
+ totalSuccessfulIters = 11805829
+
+ throughPut = 1.02042e+08
+
+ throughPutSuccessfulAcq = 380833
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999968
+ totalExecutedIters = 5665833296
+ totalSuccessfulIters = 9702437
+
+ throughPut = 1.82769e+08
+
+ throughPutSuccessfulAcq = 312982
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 900498352
+ totalSuccessfulIters = 900498352
+
+ throughPut = 2.90483e+07
+
+ throughPutSuccessfulAcq = 2.90483e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999995
+ totalExecutedIters = 749448248
+ totalSuccessfulIters = 696046790
+
+ throughPut = 2.41758e+07
+
+ throughPutSuccessfulAcq = 2.24531e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999978
+ totalExecutedIters = 333002935
+ totalSuccessfulIters = 86438269
+
+ throughPut = 1.0742e+07
+
+ throughPutSuccessfulAcq = 2.78833e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 374104998
+ totalSuccessfulIters = 39718745
+
+ throughPut = 1.20679e+07
+
+ throughPutSuccessfulAcq = 1.28125e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999956
+ totalExecutedIters = 435570379
+ totalSuccessfulIters = 19951944
+
+ throughPut = 1.40507e+07
+
+ throughPutSuccessfulAcq = 643612
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999973
+ totalExecutedIters = 435868087
+ totalSuccessfulIters = 9133173
+
+ throughPut = 1.40603e+07
+
+ throughPutSuccessfulAcq = 294619
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 413802108
+ totalSuccessfulIters = 7490108
+
+ throughPut = 1.33485e+07
+
+ throughPutSuccessfulAcq = 241616
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000000
+ totalExecutedIters = 842115328
+ totalSuccessfulIters = 11642364
+
+ throughPut = 2.7165e+07
+
+ throughPutSuccessfulAcq = 375560
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000019
+ totalExecutedIters = 1702200403
+ totalSuccessfulIters = 12479174
+
+ throughPut = 5.49097e+07
+
+ throughPutSuccessfulAcq = 402554
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000029
+ totalExecutedIters = 3125198595
+ totalSuccessfulIters = 11634305
+
+ throughPut = 1.00813e+08
+
+ throughPutSuccessfulAcq = 375300
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31001198
+ totalExecutedIters = 5800322864
+ totalSuccessfulIters = 9576620
+
+ throughPut = 1.871e+08
+
+ throughPutSuccessfulAcq = 308911
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999988
+ totalExecutedIters = 905458218
+ totalSuccessfulIters = 905458218
+
+ throughPut = 2.92083e+07
+
+ throughPutSuccessfulAcq = 2.92083e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999995
+ totalExecutedIters = 741317314
+ totalSuccessfulIters = 741226467
+
+ throughPut = 2.39135e+07
+
+ throughPutSuccessfulAcq = 2.39105e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999999
+ totalExecutedIters = 291701832
+ totalSuccessfulIters = 93467458
+
+ throughPut = 9.40974e+06
+
+ throughPutSuccessfulAcq = 3.01508e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999980
+ totalExecutedIters = 394835161
+ totalSuccessfulIters = 45278671
+
+ throughPut = 1.27366e+07
+
+ throughPutSuccessfulAcq = 1.4606e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999867
+ totalExecutedIters = 407738482
+ totalSuccessfulIters = 18471649
+
+ throughPut = 1.31529e+07
+
+ throughPutSuccessfulAcq = 595862
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000004
+ totalExecutedIters = 434687305
+ totalSuccessfulIters = 9185273
+
+ throughPut = 1.40222e+07
+
+ throughPutSuccessfulAcq = 296299
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 415371065
+ totalSuccessfulIters = 7490223
+
+ throughPut = 1.33991e+07
+
+ throughPutSuccessfulAcq = 241620
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 835499433
+ totalSuccessfulIters = 11477304
+
+ throughPut = 2.69516e+07
+
+ throughPutSuccessfulAcq = 370236
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 1578288168
+ totalSuccessfulIters = 11255091
+
+ throughPut = 5.09125e+07
+
+ throughPutSuccessfulAcq = 363067
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999997
+ totalExecutedIters = 3103483783
+ totalSuccessfulIters = 11608634
+
+ throughPut = 1.00112e+08
+
+ throughPutSuccessfulAcq = 374472
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 500 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=500 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000044
+ totalExecutedIters = 5164973548
+ totalSuccessfulIters = 9038653
+
+ throughPut = 1.66612e+08
+
+ throughPutSuccessfulAcq = 291569
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999980
+ totalExecutedIters = 905293884
+ totalSuccessfulIters = 905293884
+
+ throughPut = 2.9203e+07
+
+ throughPutSuccessfulAcq = 2.9203e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999963
+ totalExecutedIters = 746083252
+ totalSuccessfulIters = 746023190
+
+ throughPut = 2.40672e+07
+
+ throughPutSuccessfulAcq = 2.40653e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999981
+ totalExecutedIters = 212234287
+ totalSuccessfulIters = 106302895
+
+ throughPut = 6.84627e+06
+
+ throughPutSuccessfulAcq = 3.42913e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999980
+ totalExecutedIters = 319886079
+ totalSuccessfulIters = 53146129
+
+ throughPut = 1.03189e+07
+
+ throughPutSuccessfulAcq = 1.71439e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 399169153
+ totalSuccessfulIters = 20748114
+
+ throughPut = 1.28764e+07
+
+ throughPutSuccessfulAcq = 669294
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999982
+ totalExecutedIters = 423095150
+ totalSuccessfulIters = 8707373
+
+ throughPut = 1.36482e+07
+
+ throughPutSuccessfulAcq = 280883
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999981
+ totalExecutedIters = 416461641
+ totalSuccessfulIters = 7425791
+
+ throughPut = 1.34343e+07
+
+ throughPutSuccessfulAcq = 239542
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 851927483
+ totalSuccessfulIters = 11730085
+
+ throughPut = 2.74815e+07
+
+ throughPutSuccessfulAcq = 378390
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000012
+ totalExecutedIters = 1664010752
+ totalSuccessfulIters = 12065852
+
+ throughPut = 5.36777e+07
+
+ throughPutSuccessfulAcq = 389221
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000022
+ totalExecutedIters = 2899843401
+ totalSuccessfulIters = 10967107
+
+ throughPut = 9.35433e+07
+
+ throughPutSuccessfulAcq = 353777
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 4985780513
+ totalSuccessfulIters = 8952908
+
+ throughPut = 1.60832e+08
+
+ throughPutSuccessfulAcq = 288803
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999970
+ totalExecutedIters = 900678807
+ totalSuccessfulIters = 900678807
+
+ throughPut = 2.90542e+07
+
+ throughPutSuccessfulAcq = 2.90542e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999984
+ totalExecutedIters = 741210806
+ totalSuccessfulIters = 741201718
+
+ throughPut = 2.391e+07
+
+ throughPutSuccessfulAcq = 2.39097e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999989
+ totalExecutedIters = 170083815
+ totalSuccessfulIters = 169966539
+
+ throughPut = 5.48658e+06
+
+ throughPutSuccessfulAcq = 5.48279e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999981
+ totalExecutedIters = 135395696
+ totalSuccessfulIters = 135030247
+
+ throughPut = 4.36761e+06
+
+ throughPutSuccessfulAcq = 4.35582e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 138606890
+ totalSuccessfulIters = 136050995
+
+ throughPut = 4.47119e+06
+
+ throughPutSuccessfulAcq = 4.38874e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000010
+ totalExecutedIters = 228554481
+ totalSuccessfulIters = 68831051
+
+ throughPut = 7.37272e+06
+
+ throughPutSuccessfulAcq = 2.22036e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999994
+ totalExecutedIters = 253482318
+ totalSuccessfulIters = 56341665
+
+ throughPut = 8.17685e+06
+
+ throughPutSuccessfulAcq = 1.81747e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999994
+ totalExecutedIters = 504279676
+ totalSuccessfulIters = 40473590
+
+ throughPut = 1.62671e+07
+
+ throughPutSuccessfulAcq = 1.3056e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000014
+ totalExecutedIters = 1009608768
+ totalSuccessfulIters = 17921221
+
+ throughPut = 3.2568e+07
+
+ throughPutSuccessfulAcq = 578104
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000020
+ totalExecutedIters = 1941268849
+ totalSuccessfulIters = 12212399
+
+ throughPut = 6.26215e+07
+
+ throughPutSuccessfulAcq = 393948
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 3791541062
+ totalSuccessfulIters = 6810142
+
+ throughPut = 1.22308e+08
+
+ throughPutSuccessfulAcq = 219682
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000000
+ totalExecutedIters = 900453715
+ totalSuccessfulIters = 900453715
+
+ throughPut = 2.90469e+07
+
+ throughPutSuccessfulAcq = 2.90469e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999955
+ totalExecutedIters = 747245054
+ totalSuccessfulIters = 747244955
+
+ throughPut = 2.41047e+07
+
+ throughPutSuccessfulAcq = 2.41047e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999982
+ totalExecutedIters = 159028385
+ totalSuccessfulIters = 159028127
+
+ throughPut = 5.12995e+06
+
+ throughPutSuccessfulAcq = 5.12994e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999997
+ totalExecutedIters = 137102497
+ totalSuccessfulIters = 137101510
+
+ throughPut = 4.42266e+06
+
+ throughPutSuccessfulAcq = 4.42263e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999994
+ totalExecutedIters = 127359808
+ totalSuccessfulIters = 127357291
+
+ throughPut = 4.10838e+06
+
+ throughPutSuccessfulAcq = 4.1083e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000007
+ totalExecutedIters = 126202220
+ totalSuccessfulIters = 126194995
+
+ throughPut = 4.07104e+06
+
+ throughPutSuccessfulAcq = 4.07081e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 128483865
+ totalSuccessfulIters = 128471896
+
+ throughPut = 4.14464e+06
+
+ throughPutSuccessfulAcq = 4.14425e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000013
+ totalExecutedIters = 143385165
+ totalSuccessfulIters = 117903812
+
+ throughPut = 4.62533e+06
+
+ throughPutSuccessfulAcq = 3.80335e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000004
+ totalExecutedIters = 169139059
+ totalSuccessfulIters = 92417629
+
+ throughPut = 5.4561e+06
+
+ throughPutSuccessfulAcq = 2.98121e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999999
+ totalExecutedIters = 246571805
+ totalSuccessfulIters = 61266818
+
+ throughPut = 7.95393e+06
+
+ throughPutSuccessfulAcq = 1.97635e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000015
+ totalExecutedIters = 390519885
+ totalSuccessfulIters = 15161836
+
+ throughPut = 1.25974e+07
+
+ throughPutSuccessfulAcq = 489091
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999991
+ totalExecutedIters = 905500276
+ totalSuccessfulIters = 905500276
+
+ throughPut = 2.92097e+07
+
+ throughPutSuccessfulAcq = 2.92097e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999979
+ totalExecutedIters = 749219333
+ totalSuccessfulIters = 749219327
+
+ throughPut = 2.41684e+07
+
+ throughPutSuccessfulAcq = 2.41684e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999985
+ totalExecutedIters = 167869229
+ totalSuccessfulIters = 167869209
+
+ throughPut = 5.41514e+06
+
+ throughPutSuccessfulAcq = 5.41514e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999992
+ totalExecutedIters = 137518879
+ totalSuccessfulIters = 137518833
+
+ throughPut = 4.43609e+06
+
+ throughPutSuccessfulAcq = 4.43609e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999994
+ totalExecutedIters = 123131360
+ totalSuccessfulIters = 123131240
+
+ throughPut = 3.97198e+06
+
+ throughPutSuccessfulAcq = 3.97198e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999999
+ totalExecutedIters = 127240866
+ totalSuccessfulIters = 127240494
+
+ throughPut = 4.10454e+06
+
+ throughPutSuccessfulAcq = 4.10453e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 127079454
+ totalSuccessfulIters = 127078999
+
+ throughPut = 4.09934e+06
+
+ throughPutSuccessfulAcq = 4.09932e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 131512464
+ totalSuccessfulIters = 130494686
+
+ throughPut = 4.24234e+06
+
+ throughPutSuccessfulAcq = 4.20951e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 108753519
+ totalSuccessfulIters = 105933392
+
+ throughPut = 3.50818e+06
+
+ throughPutSuccessfulAcq = 3.41721e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 98527569
+ totalSuccessfulIters = 90251626
+
+ throughPut = 3.17831e+06
+
+ throughPutSuccessfulAcq = 2.91134e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 1000000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=1000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999999
+ totalExecutedIters = 98962612
+ totalSuccessfulIters = 74039507
+
+ throughPut = 3.19234e+06
+
+ throughPutSuccessfulAcq = 2.38837e+06
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999987
+ totalExecutedIters = 905195025
+ totalSuccessfulIters = 905195025
+
+ throughPut = 2.91999e+07
+
+ throughPutSuccessfulAcq = 2.91999e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999984
+ totalExecutedIters = 746241351
+ totalSuccessfulIters = 746241351
+
+ throughPut = 2.40723e+07
+
+ throughPutSuccessfulAcq = 2.40723e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000010
+ totalExecutedIters = 173429342
+ totalSuccessfulIters = 173429342
+
+ throughPut = 5.59449e+06
+
+ throughPutSuccessfulAcq = 5.59449e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999993
+ totalExecutedIters = 136775327
+ totalSuccessfulIters = 136775327
+
+ throughPut = 4.41211e+06
+
+ throughPutSuccessfulAcq = 4.41211e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999996
+ totalExecutedIters = 125054797
+ totalSuccessfulIters = 125054797
+
+ throughPut = 4.03403e+06
+
+ throughPutSuccessfulAcq = 4.03403e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999999
+ totalExecutedIters = 128005809
+ totalSuccessfulIters = 128005809
+
+ throughPut = 4.12922e+06
+
+ throughPutSuccessfulAcq = 4.12922e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999973
+ totalExecutedIters = 125344897
+ totalSuccessfulIters = 125344897
+
+ throughPut = 4.04339e+06
+
+ throughPutSuccessfulAcq = 4.04339e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 121721948
+ totalSuccessfulIters = 121721948
+
+ throughPut = 3.92651e+06
+
+ throughPutSuccessfulAcq = 3.92651e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 106876047
+ totalSuccessfulIters = 106876047
+
+ throughPut = 3.44761e+06
+
+ throughPutSuccessfulAcq = 3.44761e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000004
+ totalExecutedIters = 89055292
+ totalSuccessfulIters = 89055292
+
+ throughPut = 2.87275e+06
+
+ throughPutSuccessfulAcq = 2.87275e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 100000000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=100000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 73023542
+ totalSuccessfulIters = 73019228
+
+ throughPut = 2.3556e+06
+
+ throughPutSuccessfulAcq = 2.35546e+06
+++ for waitThreshold in 0 10 100 500 1000 10000 100000 1000000 100000000 10000000000
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 1 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000002
+ totalExecutedIters = 897381671
+ totalSuccessfulIters = 897381671
+
+ throughPut = 2.89478e+07
+
+ throughPutSuccessfulAcq = 2.89478e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 2 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999974
+ totalExecutedIters = 750200909
+ totalSuccessfulIters = 750200909
+
+ throughPut = 2.42e+07
+
+ throughPutSuccessfulAcq = 2.42e+07
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 4 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999977
+ totalExecutedIters = 162307738
+ totalSuccessfulIters = 162307738
+
+ throughPut = 5.23574e+06
+
+ throughPutSuccessfulAcq = 5.23574e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 8 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999986
+ totalExecutedIters = 140060486
+ totalSuccessfulIters = 140060486
+
+ throughPut = 4.51808e+06
+
+ throughPutSuccessfulAcq = 4.51808e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 16 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999988
+ totalExecutedIters = 128615610
+ totalSuccessfulIters = 128615610
+
+ throughPut = 4.14889e+06
+
+ throughPutSuccessfulAcq = 4.14889e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 32 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 126690451
+ totalSuccessfulIters = 126690451
+
+ throughPut = 4.08679e+06
+
+ throughPutSuccessfulAcq = 4.08679e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 36 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999998
+ totalExecutedIters = 128753198
+ totalSuccessfulIters = 128753198
+
+ throughPut = 4.15333e+06
+
+ throughPutSuccessfulAcq = 4.15333e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 72 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999988
+ totalExecutedIters = 124201687
+ totalSuccessfulIters = 124201687
+
+ throughPut = 4.00651e+06
+
+ throughPutSuccessfulAcq = 4.00651e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 144 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000001
+ totalExecutedIters = 108703130
+ totalSuccessfulIters = 108703130
+
+ throughPut = 3.50655e+06
+
+ throughPutSuccessfulAcq = 3.50655e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 288 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 31000009
+ totalExecutedIters = 90311979
+ totalSuccessfulIters = 90311979
+
+ throughPut = 2.91329e+06
+
+ throughPutSuccessfulAcq = 2.91329e+06
+++ for wokingThreads in 1 2 4 8 16 32 36 72 144 288 576
+++ mult=1
+++ timeout 60 numactl --localalloc ./A_BO_CLH_NB_abort 1 30 99999999999990 10000000000 576 576 2 36 64 576 1
+
+ mustBeAMultile=1 timeoutSec=30 totalIters=99999999999990 waitThreshold=10000000000 numThreads=576 levels=2  n1=36 t1=64 n2=576 t2=1
+CPU_SET(1*tid, &cpuset);
+
+ Timed out
+ elapsed = 30999987
+ totalExecutedIters = 72846301
+ totalSuccessfulIters = 72846301
+
+ throughPut = 2.34988e+06
+
+ throughPutSuccessfulAcq = 2.34988e+06
