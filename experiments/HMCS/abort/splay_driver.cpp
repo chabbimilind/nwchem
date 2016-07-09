@@ -129,6 +129,8 @@ uint64_t volatile  gKey __attribute__((aligned(CACHE_LINE_SIZE))) = 64;
 volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval endTime __attribute__((aligned(CACHE_LINE_SIZE)));
+char dummyDummy[CACHE_LINE_SIZE-sizeof(struct timeval)];
+
 
     static inline struct TraceSplay* splay(struct TraceSplay* root, uint64_t ip) {
         REGULAR_SPLAY_TREE(TraceSplay, root, ip, key, left, right);
@@ -208,13 +210,26 @@ static inline uint64_t Worker(UNDERLYING_LOCK * LockType * hmcs, uint64_t numOps
    return i;
 }
 #else
-static inline void Worker(UNDERLYING_LOCK * hmcs, uint64_t numOps, int64_t waitThreshold,  uint64_t &executedIters, uint64_t &numSuccessfulAcquisitions){
+static inline void Worker(UNDERLYING_LOCK * hmcs, uint64_t numOps, int64_t waitThreshold,  
+   uint64_t &executedIters, uint64_t &numSuccessfulAcquisitions,
+   uint64_t &nonCSWork,
+   uint64_t &csWork,
+   uint64_t &acquireCost,
+   uint64_t &releaseCost,
+   uint64_t &abortCost) {
+   uint64_t t1, t2, t3, t4, t5, t6, t7, outsideStart;
+
+   struct drand48_data randSeedbuffer;
+   srand48_r(GetFastClockTick(), &randSeedbuffer);
+
    unsigned int seed;
    uint64_t key;
    uint64_t i=0;
    uint64_t next = rand_r(&seed) % 10;
    uint64_t nextRoundup = 10;
+   t1 = GetFastClockTick();
    for(i = 0; i < numOps && !gTimedOut; i++){
+       outsideStart = GetFastClockTick();
        int n = rand_r(&seed);
        if(i  == next) {
            nextRoundup += 10;   
@@ -238,14 +253,31 @@ static inline void Worker(UNDERLYING_LOCK * hmcs, uint64_t numOps, int64_t waitT
 
        }else
             key = gKey;
+
+#ifdef  DOWORK
+	DoWorkOutsideCS(&randSeedbuffer, outsideStart);
+#endif
        int64_t patience = GetFastClockTick() + waitThreshold;
 
+       uint64_t t2 = GetFastClockTick();
        if(hmcs->Acquire(patience) == true) {
+            t3 = GetFastClockTick();
        	    Lookup(key);
+            t4 = GetFastClockTick();
        	    hmcs->Release(patience);
+            t5 = GetFastClockTick();
 	    numSuccessfulAcquisitions++;
+            acquireCost += t3 - t2;
+            csWork += t4 - t3;
+            releaseCost += t5 - t4;
+       } else {
+            t6 = GetFastClockTick();
+            abortCost += t6 - t2;
        }
+       
    }
+   t7 = GetFastClockTick(); 
+   nonCSWork += t7 - t1 - (csWork + acquireCost + releaseCost + abortCost);
    executedIters = i;
 }
 #endif
@@ -351,14 +383,25 @@ int main(int argc, char *argv[]){
     }
     cout<<endl;
 
+    struct Metrics {
+        uint64_t totalNonCSWork __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalCSWork __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalAcquireCost __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalReleaseCost __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalAbortCost __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalExecutedIters __attribute__((aligned(CACHE_LINE_SIZE)));
+        uint64_t totalSuccessfulIters __attribute__((aligned(CACHE_LINE_SIZE)));
+        char buf[CACHE_LINE_SIZE - sizeof(uint64_t)];
+	Metrics() : totalSuccessfulIters(0), totalNonCSWork(0), totalCSWork(0), totalAcquireCost(0), totalReleaseCost(0), totalAbortCost(0), totalExecutedIters(0)  {}
+     };
+
+    Metrics metrics;
 
     // initalize
     gTimedOut = false;
 
     omp_set_num_threads(numThreads);
     uint64_t elapsed;
-    uint64_t totalExecutedIters = 0;
-    uint64_t totalSuccessfulIters = 0;
 
     Populate(MAX_SPLAY_TREE_KEYS);
 
@@ -374,6 +417,12 @@ int main(int argc, char *argv[]){
         int size = omp_get_num_threads();
         uint64_t myIters=0;
         uint64_t mySuccessfulAcquisitions=0;
+        uint64_t nonCSWork = 0;
+        uint64_t csWork = 0;
+        uint64_t acquireCost = 0;
+        uint64_t releaseCost = 0;
+        uint64_t abortCost = 0; 
+
         uint64_t numIter = totalIters / numThreads;
         struct drand48_data randSeedbuffer;
         srand48_r(tid, &randSeedbuffer);
@@ -398,35 +447,58 @@ int main(int argc, char *argv[]){
             StartTimer(timeoutSec);
             gettimeofday(&startTime, 0);
         }
-        Worker(hmcs, numIter, waitThreshold, myIters, mySuccessfulAcquisitions);
+  
+        Worker(hmcs, numIter, waitThreshold, myIters, mySuccessfulAcquisitions, nonCSWork, csWork, acquireCost, releaseCost, abortCost);
 
     DONE:
-        // If timed out, let us add add total iters executed
-        if(gTimedOut){
-            ATOMIC_ADD(&totalExecutedIters, myIters);
-        }
-        ATOMIC_ADD(&totalSuccessfulIters, mySuccessfulAcquisitions);
+        ATOMIC_ADD(&metrics.totalExecutedIters, myIters);
+        ATOMIC_ADD(&metrics.totalSuccessfulIters, mySuccessfulAcquisitions);
+        ATOMIC_ADD(&metrics.totalNonCSWork, nonCSWork);
+        ATOMIC_ADD(&metrics.totalCSWork, csWork);
+        ATOMIC_ADD(&metrics.totalAcquireCost, acquireCost);
+        ATOMIC_ADD(&metrics.totalReleaseCost, releaseCost);
+        ATOMIC_ADD(&metrics.totalAbortCost, abortCost);
     }
-
+    gettimeofday(&endTime, 0);
     // If not timed out, let us get the end time and total iters
-    if(!gTimedOut){
-        gettimeofday(&endTime, 0);
-        totalExecutedIters = (totalIters / numThreads) * (numThreads/mustBeAMultile);
-    } else {
+    if(gTimedOut){
         std::cout<<"\n Timed out";
-        // All except thread 0 (signal received) will report 1 trip extra
-        // If each thread performs 1K iters, it is a small .1% skid. So ignore.
     }
 
 
     elapsed = TIME_SPENT(startTime, endTime);
-    double throughPut = (totalExecutedIters) * 1000000.0 / elapsed;
-    double throughPutSuccessfulAcq = (totalSuccessfulIters) * 1000000.0 / elapsed;
-    std::cout<<"\n elapsed = " << elapsed;
-    std::cout<<"\n totalExecutedIters = " << totalExecutedIters;
-    std::cout<<"\n totalSuccessfulIters = " << totalSuccessfulIters << "\n";
-    std::cout<<"\n throughPut = " << throughPut << "\n";
-    std::cout<<"\n throughPutSuccessfulAcq = " << throughPutSuccessfulAcq << "\n";
+    double throughPut = (metrics.totalExecutedIters) * 1000000.0 / elapsed;
+    double throughPutSuccessfulAcq = (metrics.totalSuccessfulIters) * 1000000.0 / elapsed;
+    double latencySuccessfulAcquisition = 1.0 * (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost) / metrics.totalSuccessfulIters;
+    double latencySuccessfulAcquisitionPlusAborts = 1.0 *  (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost) / metrics.totalSuccessfulIters;
+    double uselessWork = (metrics.totalAbortCost) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double acquireOverhead = (metrics.totalAcquireCost) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double releaseOverhead = (metrics.totalReleaseCost) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double criticalWork = (metrics.totalCSWork) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double nonCriticalWork = (metrics.totalNonCSWork) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double totalWork = (metrics.totalNonCSWork + metrics.totalCSWork) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+    double totalOverhead = (metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost) * 1.0 / (metrics.totalCSWork + metrics.totalAcquireCost + metrics.totalReleaseCost + metrics.totalAbortCost + metrics.totalNonCSWork); 
+
+    std::cout<<"\n elapsed=" << elapsed;
+    std::cout<<"\n totalExecutedIters=" << metrics.totalExecutedIters;
+    std::cout<<"\n totalSuccessfulIters=" << metrics.totalSuccessfulIters;
+    std::cout<<"\n totalNonCSWork=" << metrics.totalNonCSWork;
+    std::cout<<"\n totalCSWork=" << metrics.totalCSWork;
+    std::cout<<"\n totalAcquireCost=" << metrics.totalAcquireCost;
+    std::cout<<"\n totalReleaseCost=" << metrics.totalReleaseCost;
+    std::cout<<"\n totalAbortCost=" << metrics.totalAbortCost;
+    std::cout<<"\n throughPut=" << throughPut;
+    std::cout<<"\n throughPutSuccessfulAcq=" << throughPutSuccessfulAcq;
+    std::cout<<"\n latencySuccessfulAcquisition=" << latencySuccessfulAcquisition;
+    std::cout<<"\n latencySuccessfulAcquisitionPlusAborts=" << latencySuccessfulAcquisitionPlusAborts;
+    std::cout<<"\n uselessWork=" << uselessWork;
+    std::cout<<"\n acquireOverhead=" << acquireOverhead;
+    std::cout<<"\n releaseOverhead=" << releaseOverhead;
+    std::cout<<"\n criticalWork=" << criticalWork;
+    std::cout<<"\n nonCriticalWork=" << nonCriticalWork;
+    std::cout<<"\n totalWork=" << totalWork;
+    std::cout<<"\n totalOverhead=" << totalOverhead << "\n";
+  
 
     return 0;
 }

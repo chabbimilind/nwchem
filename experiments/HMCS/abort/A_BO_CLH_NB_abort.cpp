@@ -14,10 +14,12 @@ int * thresholdAtLevel;
 
   struct clh_nb_qnode {
       struct clh_nb_qnode *volatile prev __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct clh_nb_qnode *)];
   };
   struct clh_nb_lock{
       clh_nb_qnode *volatile tail __attribute__((aligned(CACHE_LINE_SIZE)));
       clh_nb_qnode *lock_holder __attribute__((aligned(CACHE_LINE_SIZE)));   // node allocated by lock holder
+      char buf[CACHE_LINE_SIZE-sizeof(clh_nb_qnode *)];
       clh_nb_lock() : tail(0), lock_holder(0){}   
   };
   
@@ -53,6 +55,7 @@ int * thresholdAtLevel;
       } real_qnode;
       volatile bool allocated __attribute__((aligned(CACHE_LINE_SIZE)));
       struct local_qnode *next_in_pool __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct local_qnode *)];
   } local_qnode;
   
   typedef struct {
@@ -94,6 +97,7 @@ __thread local_head_node me;
 struct ABOLock{
 #define MAX_RETRY (1L<<10)
 	volatile uint64_t status __attribute__((aligned(CACHE_LINE_SIZE)));
+        char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
 	ABOLock(): status(UNLOCKED) {}
 	inline bool Acquire(int64_t T) {
 		uint64_t retryThreshold = 2;
@@ -120,9 +124,11 @@ ABOLock abLock;
 
 volatile int y = 0;
 struct A_C_BO_CLHLock{
+  const uint64_t maxThreshold = 64;
   clh_nb_lock gLock  __attribute__((aligned(CACHE_LINE_SIZE)));
   uint64_t curThreshold __attribute__((aligned(CACHE_LINE_SIZE)));
-  const uint64_t maxThreshold = 64;
+  char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
+
   A_C_BO_CLHLock(): gLock()  {curThreshold=maxThreshold;  }
   inline bool Acquire(int64_t T) {
       clh_nb_lock * L = &gLock;
@@ -297,6 +303,10 @@ me.initial_qnode.next_in_pool = &me.initial_qnode;
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

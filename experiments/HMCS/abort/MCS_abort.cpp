@@ -6,8 +6,9 @@ int * thresholdAtLevel;
   typedef struct mcs_qnode {
       volatile struct mcs_qnode *volatile prev __attribute__((aligned(CACHE_LINE_SIZE)));
       volatile struct mcs_qnode *volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct mcs_qnode *)];
   } mcs_qnode;
-  typedef volatile mcs_qnode *mcs_qnode_ptr;
+  typedef volatile mcs_qnode * volatile mcs_qnode_ptr;
   typedef mcs_qnode_ptr mcs_try_lock;
   typedef volatile mcs_qnode_ptr qnode_ptr;
 
@@ -77,6 +78,8 @@ __thread mcs_qnode me;
 
 struct MCSAbortableLock{
   mcs_try_lock gLock  __attribute__((aligned(CACHE_LINE_SIZE)));
+  char buf[CACHE_LINE_SIZE-sizeof(mcs_try_lock)];
+
   MCSAbortableLock(): gLock(0) {}
   bool Acquire(int64_t T) {
       qnode_ptr I = &me;
@@ -399,6 +402,10 @@ MCSAbortableLock * LockInit(int tid, int maxThreads, int levels, int * participa
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

@@ -4,6 +4,8 @@ int * thresholdAtLevel;
  
 struct TATASLock{
     volatile uint64_t L __attribute__((aligned(CACHE_LINE_SIZE)));
+    char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
+
     TATASLock(): L(UNLOCKED){}
     inline bool Acquire(int64_t patience){
         while(1) {
@@ -41,6 +43,10 @@ TATASLock * LockInit(int tid, int maxThreads, int levels, int * participantsAtLe
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

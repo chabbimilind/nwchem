@@ -2,6 +2,8 @@
 volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval endTime __attribute__((aligned(CACHE_LINE_SIZE)));
+char dummyDummy[CACHE_LINE_SIZE-sizeof(struct timeval)];
+
 
 void AlarmHandler(int sig) {
     printf("\n Time out!\n");

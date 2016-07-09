@@ -1,0 +1,2 @@
+set -ex 
+grep -E "totalExecutedIters|totalSuccessfulIters|totalNonCSWork|totalCSWork|totalAcquireCost|totalReleaseCost|totalAbortCost|throughPut|throughPutSuccessfulAcq|latencySuccessfulAcquisition|latencySuccessfulAcquisitionPlusAborts|uselessWork|acquireOverhead|releaseOverhead|criticalWork|nonCriticalWork|totalWork|totalOverhead" $*

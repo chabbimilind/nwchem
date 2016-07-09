@@ -13,11 +13,12 @@
 struct QNode{
     struct QNode * volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
     volatile uint64_t status __attribute__((aligned(CACHE_LINE_SIZE)));
+    char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
     QNode() : status(WAIT), next(NULL) {
         
     }
     
-    inline void* operator new(size_t size) {
+    inline __attribute__((always_inline)) void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
@@ -26,7 +27,7 @@ struct QNode{
     }
     
     
-    inline void Reuse(){
+    inline __attribute__((always_inline)) void Reuse(){
         status = WAIT;
         next = NULL;
         // Updates must happen before swap
@@ -40,8 +41,10 @@ struct HNode{
     struct QNode *  volatile lock __attribute__((aligned(CACHE_LINE_SIZE)));
     struct QNode  node __attribute__((aligned(CACHE_LINE_SIZE)));
     uint64_t contentionCounter __attribute__((aligned(CACHE_LINE_SIZE)));
+    char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
+
     
-    inline void* operator new(size_t size) {
+    inline __attribute__((always_inline)) void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
@@ -51,15 +54,15 @@ struct HNode{
     
     
     
-    inline bool IsTopLevel() {
+    inline __attribute__((always_inline)) bool IsTopLevel() {
         return parent == NULL ? true : false;
     }
     
-    inline uint64_t GetThreshold()const {
+    inline __attribute__((always_inline)) uint64_t GetThreshold()const {
         return threshold;
     }
     
-    inline void SetThreshold(uint64_t t) {
+    inline __attribute__((always_inline)) void SetThreshold(uint64_t t) {
         threshold = t;
     }
     
@@ -68,12 +71,12 @@ struct HNode{
 int threshold;
 int * thresholdAtLevel;
 
-inline int GetThresholdAtLevel(int level){
+inline __attribute__((always_inline)) int GetThresholdAtLevel(int level){
     return thresholdAtLevel[level];
 }
 
 
-inline static void NormalMCSReleaseWithValue(HNode * L, QNode *I, uint64_t val){
+inline __attribute__((always_inline)) static void NormalMCSReleaseWithValue(HNode * L, QNode *I, uint64_t val){
     QNode * succ = I->next;
     if(succ) {
         succ->status = val;
@@ -88,7 +91,7 @@ inline static void NormalMCSReleaseWithValue(HNode * L, QNode *I, uint64_t val){
 
 template<int level>
 struct HMCSLock{
-    inline static void AcquireHelper(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void AcquireHelper(HNode * L, QNode *I) {
         // Prepare the node for use.
         I->Reuse();
         QNode * pred = (QNode *) SWAP(&(L->lock), I);
@@ -118,7 +121,7 @@ struct HMCSLock{
         }
     }
     
-    inline static void Acquire(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void Acquire(HNode * L, QNode *I) {
         HMCSLock<level>::AcquireHelper(L, I);
         FORCE_INS_ORDERING();
     }
@@ -127,7 +130,7 @@ struct HMCSLock{
     
     
     
-    inline static void ReleaseHelper(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void ReleaseHelper(HNode * L, QNode *I) {
         
         uint64_t curCount = I->status;
         QNode * succ;
@@ -157,7 +160,7 @@ struct HMCSLock{
         NormalMCSReleaseWithValue(L, I, ACQUIRE_PARENT);
     }
     
-    inline static void Release(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void Release(HNode * L, QNode *I) {
         COMMIT_ALL_WRITES();
         HMCSLock<level>::ReleaseHelper(L, I);
     }
@@ -165,7 +168,7 @@ struct HMCSLock{
 
 template <>
 struct HMCSLock<1> {
-    inline static void AcquireHelper(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void AcquireHelper(HNode * L, QNode *I) {
         // Prepare the node for use.
         I->Reuse();
         QNode * pred = (QNode *) SWAP(&(L->lock), I);
@@ -179,12 +182,12 @@ struct HMCSLock<1> {
     }
     
     
-    inline static void Acquire(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void Acquire(HNode * L, QNode *I) {
         HMCSLock<1>::AcquireHelper(L, I);
         FORCE_INS_ORDERING();
     }
     
-    inline static void ReleaseHelper(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void ReleaseHelper(HNode * L, QNode *I) {
         // Top level release is usual MCS
         // At the top level MCS we always writr COHORT_START since
         // 1. It will release the lock
@@ -193,7 +196,7 @@ struct HMCSLock<1> {
         NormalMCSReleaseWithValue(L, I, COHORT_START);
     }
     
-    inline static void Release(HNode * L, QNode *I) {
+    inline __attribute__((always_inline)) static void Release(HNode * L, QNode *I) {
         COMMIT_ALL_WRITES();
         HMCSLock<1>::ReleaseHelper(L, I);
     }
@@ -204,12 +207,17 @@ typedef void (*AcquireFP) (HNode *, QNode *);
 typedef void (*ReleaseFP) (HNode *, QNode *);
 struct HMCSLockWrapper{
     HNode * curNode;
+#ifdef USE_FP 
+    HNode * rootNode;
+#endif
     AcquireFP myAcquire;
     ReleaseFP myRelease;
     QNode I;
     int curDepth;
-
-    inline void* operator new(size_t size) {
+#ifdef USE_FP 
+    bool tookFP;
+#endif
+    inline __attribute__((always_inline)) void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
@@ -217,7 +225,12 @@ struct HMCSLockWrapper{
         return storage;
     }
 
-    HMCSLockWrapper(HNode * h, int depth) : curNode(h), curDepth(depth) {
+    HMCSLockWrapper(HNode * h, int depth) : curNode(h), curDepth(depth) 
+#ifdef USE_FP 
+,
+tookFP(false)
+#endif
+{
         switch(curDepth){
             case 1:  myAcquire = HMCSLock<1>::Acquire; myRelease = HMCSLock<1>::Release; break;
             case 2:  myAcquire = HMCSLock<2>::Acquire; myRelease = HMCSLock<2>::Release; break;
@@ -226,9 +239,21 @@ struct HMCSLockWrapper{
             case 5:  myAcquire = HMCSLock<5>::Acquire; myRelease = HMCSLock<5>::Release; break;
             default: assert(0 && "NYI");
         }
+#ifdef USE_FP 
+        HNode * tmp;
+        for(tmp = curNode; tmp->parent != NULL; tmp = tmp->parent);
+                rootNode = tmp;
+#endif //USE_FP
     }
-    inline bool Acquire(int64_t patience){
-        //myAcquire(curNode, I);
+    inline __attribute__((always_inline)) __attribute__((flatten)) bool Acquire(int64_t patience){
+#ifdef USE_FP 
+        if(curNode->lock == NULL && rootNode->lock == NULL) {
+                // go FP
+                tookFP = true;
+                HMCSLock<1>::Acquire(rootNode, &I);
+		return true;
+        }
+#endif
         switch(curDepth){
             case 1:  HMCSLock<1>::Acquire(curNode, &I); break;
             case 2:  HMCSLock<2>::Acquire(curNode, &I); break;
@@ -239,8 +264,15 @@ struct HMCSLockWrapper{
         }
         return true;
     }
-    inline void Release(int64_t patience){
+    inline __attribute__((always_inline)) __attribute__((flatten)) void Release(int64_t patience){
         //myRelease(curNode, I);
+#ifdef USE_FP 
+        if(tookFP) {
+                HMCSLock<1>::Release(rootNode, &I);
+                tookFP = false;
+                return;
+        }
+#endif //USE_FP
         switch(curDepth){
             case 1:  HMCSLock<1>::Release(curNode, &I); break;
             case 2:  HMCSLock<2>::Release(curNode, &I); break;
@@ -321,6 +353,10 @@ HMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * participan
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

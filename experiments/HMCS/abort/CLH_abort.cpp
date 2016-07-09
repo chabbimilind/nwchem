@@ -12,6 +12,8 @@ typedef enum {waiting,      // lock is held
   struct clh_qnode {
       volatile clh_status status __attribute__((aligned(CACHE_LINE_SIZE)));
       volatile struct clh_qnode *volatile prev __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct clh_qnode *)];
+
   } __attribute__((aligned(CACHE_LINE_SIZE)));;
   
   typedef volatile clh_qnode *clh_qnode_ptr;
@@ -129,6 +131,10 @@ CLHAbortableLock * LockInit(int tid, int maxThreads, int levels, int * participa
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

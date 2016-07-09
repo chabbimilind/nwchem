@@ -5,6 +5,8 @@ int * thresholdAtLevel;
 
 struct PthreadLock{
     pthread_mutex_t L __attribute__((aligned(CACHE_LINE_SIZE)));
+    char buf[CACHE_LINE_SIZE-sizeof(pthread_mutex_t)];
+
     PthreadLock(){ 
       pthread_mutex_init(&L, 0);
     }
@@ -38,6 +40,8 @@ PthreadLock* LockInit(int tid, int maxThreads, int levels, int * participantsAtL
 volatile bool gTimedOut __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval startTime __attribute__((aligned(CACHE_LINE_SIZE)));
 struct timeval endTime __attribute__((aligned(CACHE_LINE_SIZE)));
+char dummyDummy[CACHE_LINE_SIZE-sizeof(struct timeval)];
+
 
 void AlarmHandler(int sig) {
     printf("\n Time out!\n");

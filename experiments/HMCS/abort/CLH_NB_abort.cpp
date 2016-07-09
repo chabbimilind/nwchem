@@ -14,10 +14,12 @@ int * thresholdAtLevel;
 
   typedef struct clh_nb_qnode {
       struct clh_nb_qnode *volatile prev __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct clh_nb_qnode *)];
   } clh_nb_qnode;
   struct clh_nb_lock{
       clh_nb_qnode *volatile tail __attribute__((aligned(CACHE_LINE_SIZE)));
       clh_nb_qnode *lock_holder __attribute__((aligned(CACHE_LINE_SIZE)));   // node allocated by lock holder
+      char buf[CACHE_LINE_SIZE-sizeof(clh_nb_qnode *)];
       clh_nb_lock() : tail(0), lock_holder(0){}   
   };
   
@@ -43,6 +45,7 @@ int * thresholdAtLevel;
       } real_qnode;
       volatile bool allocated __attribute__((aligned(CACHE_LINE_SIZE)));
       struct local_qnode *next_in_pool __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct local_qnode *)];
   } local_qnode;
   
   typedef struct {
@@ -85,6 +88,7 @@ __thread local_head_node me;
 
 struct CLHNBAbortableLock{
   clh_nb_lock gLock  __attribute__((aligned(CACHE_LINE_SIZE)));
+
   CLHNBAbortableLock(): gLock() {}
   bool Acquire(int64_t T) {
       clh_nb_lock * L = &gLock;
@@ -164,6 +168,10 @@ me.initial_qnode.next_in_pool = &me.initial_qnode;
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

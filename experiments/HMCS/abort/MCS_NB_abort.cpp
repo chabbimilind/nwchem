@@ -17,10 +17,13 @@ int * thresholdAtLevel;
       struct mcs_nb_qnode *volatile prev __attribute__((aligned(CACHE_LINE_SIZE)));
       struct mcs_nb_qnode *volatile next __attribute__((aligned(CACHE_LINE_SIZE)));
       volatile qnode_status status __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(qnode_status)];
+
   } __attribute__((aligned(CACHE_LINE_SIZE)));
   struct mcs_nb_lock{
       mcs_nb_qnode *volatile tail __attribute__((aligned(CACHE_LINE_SIZE)));
       mcs_nb_qnode *lock_holder __attribute__((aligned(CACHE_LINE_SIZE)));     // node allocated by lock holder
+      char buf[CACHE_LINE_SIZE-sizeof(mcs_nb_qnode *)];
       mcs_nb_lock(): tail(0), lock_holder(0){}
   } __attribute__((aligned(CACHE_LINE_SIZE)));
   
@@ -31,10 +34,12 @@ int * thresholdAtLevel;
       } real_qnode;
       volatile bool allocated __attribute__((aligned(CACHE_LINE_SIZE)));
       struct local_qnode *next_in_pool __attribute__((aligned(CACHE_LINE_SIZE)));
+      char buf[CACHE_LINE_SIZE-sizeof(struct local_qnode *)];
   } local_qnode;
   
   typedef struct {
       local_qnode *try_this_one __attribute__((aligned(CACHE_LINE_SIZE)));     // pointer into circular list
+      char buf[CACHE_LINE_SIZE-sizeof(local_qnode *)];
       local_qnode initial_qnode;
   } local_head_node;
   
@@ -93,6 +98,7 @@ __thread local_head_node me;
 
 struct MCSNBAbortableLock{
   mcs_nb_lock gLock  __attribute__((aligned(CACHE_LINE_SIZE)));
+
   MCSNBAbortableLock(): gLock() {}
   bool Acquire(int64_t T) {
   {
@@ -292,6 +298,10 @@ me.initial_qnode.next_in_pool = &me.initial_qnode;
 #include "splay_driver.cpp"
 #elif defined(CONTROLLED_NUMBER_OF_ABORTERS)
 #include "splay_driver_few_aborters.cpp"
+#elif defined(LOCAL_TREE_DRIVER)
+#include "splay_driver_local_tree.cpp"
+#elif defined(EMPTY_CS)
+#include "empty_cs.cpp"
 #else
 #include "abort_driver.cpp"
 #endif

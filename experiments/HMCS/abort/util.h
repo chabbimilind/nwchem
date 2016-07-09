@@ -168,16 +168,14 @@ void static AllocateCS(int tid, int numThreads){
     }
 }
 
+static int64_t GetFastClockTick();
 
 // perform some dummy operations and spend time when outside critical section
-void DoWorkOutsideCS(struct drand48_data * randSeedbuffer){
-#define MAX_SLEEP (1000)
-#define MIN_SLEEP (3000)
+static inline void DoWorkOutsideCS(struct drand48_data * randSeedbuffer, uint64_t startCk){
         double randNum;
-        //drand48_r(randSeedbuffer, &randNum);
-        uint64_t maxWait = THE_WAIT;//MIN_SLEEP + MAX_SLEEP * randNum;
-        volatile int i = 0;
-        while(i++ < maxWait);
+        drand48_r(randSeedbuffer, &randNum);
+        uint64_t endCk= startCk + MIN_SLEEP - DELTA_SLEEP * randNum;
+        while (GetFastClockTick() < endCk) ; // spin
 }
 /*
 void DoWorkOutsideCS(){

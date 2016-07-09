@@ -18,26 +18,53 @@ struct QNode{
     volatile uint64_t status __attribute__((aligned(CACHE_LINE_SIZE)));
     char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
     QNode() : status(READY_TO_USE), next(NULL) {}
-    inline __attribute__((always_inline)) void* operator new(size_t size) {
+    inline void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
         }
         return storage;
     }
-    inline __attribute__((always_inline)) bool HasValidSuccessor(){
+    inline bool HasValidSuccessor(){
         return next > CANT_WAIT_FOR_NEXT;
     }
     
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
+struct ABOLock{
+#define MAX_RETRY (1L<<10)
+    volatile uint64_t status __attribute__((aligned(CACHE_LINE_SIZE)));
+    char buf[CACHE_LINE_SIZE-sizeof(uint64_t)];
+    ABOLock(): status(UNLOCKED) {}
+    inline bool Acquire(int64_t T) {
+        uint64_t retryThreshold = 2;
+        while(1){
+            if(BOOL_CAS(&status, UNLOCKED, LOCKED) == true)
+                return true;
+            // back off
+            volatile uint64_t retryCnt = 0;
+            while(retryCnt ++ < retryThreshold) {
+                if(GetFastClockTick() >= T)
+                    return false; // abort
+            }
+            retryThreshold = (retryThreshold < MAX_RETRY ? retryThreshold << 1 : 2);
+        }
+    }
+    
+    inline void Release(int64_t T){
+        status = UNLOCKED;
+    }
+    
+};
+
+ABOLock abLock;
+
 struct HNode{
     int threshold __attribute__((aligned(CACHE_LINE_SIZE)));
-    struct HNode * parent __attribute__((aligned(CACHE_LINE_SIZE)));
+    struct ABOLock * parent __attribute__((aligned(CACHE_LINE_SIZE)));
     struct QNode *  volatile lock __attribute__((aligned(CACHE_LINE_SIZE)));
-    struct QNode  node __attribute__((aligned(CACHE_LINE_SIZE)));
     
-    inline __attribute__((always_inline)) void* operator new(size_t size) {
+    inline void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
@@ -45,15 +72,15 @@ struct HNode{
         return storage;
     }
     
-    inline __attribute__((always_inline)) bool IsTopLevel() {
+    inline bool IsTopLevel() {
         return parent == NULL ? true : false;
     }
     
-    inline __attribute__((always_inline)) uint64_t GetThreshold()const {
+    inline uint64_t GetThreshold()const {
         return threshold;
     }
     
-    inline __attribute__((always_inline)) void SetThreshold(uint64_t t) {
+    inline void SetThreshold(uint64_t t) {
         threshold = t;
     }
     
@@ -64,22 +91,14 @@ struct HNode{
 int threshold;
 int * thresholdAtLevel;
 
-inline __attribute__((always_inline)) int GetThresholdAtLevel(int level){
+inline int GetThresholdAtLevel(int level){
     return thresholdAtLevel[level];
 }
 
-static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode, int64_t patience);
+static inline void HandleHorizontalAbortion(HNode * L, QNode *I, int64_t patience);
 
 
-static inline void HandleVerticalAbortion(HNode * L, QNode *I, QNode * abortedNode, int64_t patience){
-    if(I==abortedNode) {
-        return;
-    }
-    HandleHorizontalAbortion(L, I, abortedNode, patience);
-}
-
-
-static inline __attribute__((always_inline)) void CleanupReverseChain(QNode * node){
+static inline void CleanupReverseChain(QNode * node){
     while (node) {
         QNode * prev = node->next; /* here next is actually the prev */
         //I->status = READY_TO_USE;
@@ -91,17 +110,19 @@ static inline __attribute__((always_inline)) void CleanupReverseChain(QNode * no
     }
 }
 
-static inline __attribute__((always_inline)) void DealWithRestOfHorizontal(HNode * & L, QNode * &I, QNode * & prev, int64_t patience){
+static inline void DealWithRestOfHorizontal(HNode * & L, QNode * &I, QNode * & prev, int64_t patience){
     while (1) {
         if(!BOOL_CAS(&(L->lock), I, NULL)) {
             // No unbounded wait...
             // while (I->next == NULL) ; // spin
+
+#if 0 // Not beeded for A_BO_MCS
             // if it is a node owned by me (frontier) and we couldn't wait for the successor, we need to set our status to "ACQUIRE_PARENT" so that next time when we come here
             // we wait till the status is READY_TO_USE
             // If CAS failes, we will set it to READY_TO_USE ourselves.
             if(AtomicLoad(&(I->status)) == COHORT_START)
                 AtomicWrite(&(I->status), ACQUIRE_PARENT);
-            
+#endif
             // Wait until out of patience or successor has enqueued.
             for( ;GetFastClockTick() < patience; ){
                 if (AtomicLoad(&(I->next)) != NULL)
@@ -147,7 +168,7 @@ SUCC_ENQED:     prevStatus = SWAP(&(I->next->status), ACQUIRE_PARENT);
 }
 
 
-static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * abortedNode, int64_t patience){
+static inline void HandleHorizontalAbortion(HNode * L, QNode *I, int64_t patience){
     QNode * prev = NULL;
     while(1) {
         if (I->HasValidSuccessor()) {
@@ -168,12 +189,6 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
                 break;
             }
         } else {
-            HandleVerticalAbortion(L->parent, &(L->node), abortedNode, patience);
-            // back from vertical abortion
-            // We most certainly need  COMMIT_ALL_WRITES();  here.
-            // HandleVerticalAbortion() would have written to the parent level shared node and possibly its uncles.
-            // Those changes outght to be visible to a peer when it climbs to the parent level.
-            COMMIT_ALL_WRITES();
             DealWithRestOfHorizontal(L, I, prev, patience);
             break;
         }
@@ -184,17 +199,16 @@ static inline void HandleHorizontalAbortion(HNode * L, QNode *I, QNode * aborted
 
 template<int level>
 struct HMCS {
-    static inline __attribute__((always_inline)) QNode * AcquireHelper(HNode * L, QNode *I, int64_t patience) {
+    static inline bool AcquireHelper(HNode * L, QNode *I, int64_t patience) {
         // Prepare the node for use.
         uint64_t prevStatus = SWAP(&(I->status), WAIT);
         QNode * pred;
         switch(prevStatus){
             case ABORTED: goto START_SPIN;
-            case COHORT_START: goto GOT_LOCK;
             case READY_TO_USE: break;
             //case WAIT: assert(0); /* depricated */ break;
             default:
-                // Covers case ACQUIRE_PARENT: assert(0 && "CASE ACQUIRE_PARENT");
+                // Covers case COHORT_START, ACQUIRE_PARENT: assert(0 && "CASE ACQUIRE_PARENT");
                 //while(I->status != READY_TO_USE); No unbounded wait
                 for(; GetFastClockTick() < patience;) {
                     if(AtomicLoad(&(I->status)) == READY_TO_USE){
@@ -206,7 +220,7 @@ struct HMCS {
                 if(CAS(&(I->status), WAIT, ACQUIRE_PARENT) !=  READY_TO_USE) {
                     // behavior is analogous to an ABORT, except that we don't set status = ABORTED
                     // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
-                    return I;
+                    return false;
                 } // else I is READY_TO_USE fall through to USE_QNODE
         }
         
@@ -219,7 +233,6 @@ struct HMCS {
         if(!pred) {
             // I am the first one at this level
             // begining of cohort
-        GOT_LOCK:
             // Milind: I expect this write to not get reordered with a previous update to I->status since it is the same location
             I->status = COHORT_START;
             // Milind: I am not sure whether there is need to issue a lwsync fence here
@@ -229,7 +242,10 @@ struct HMCS {
             // Does this mean, we should issue a fence just before starting the abort handling?
             
             // Acquire at next level if not at the top level
-            return HMCS<level-1>::AcquireHelper(L->parent, &(L->node), patience);
+            if(L->parent->Acquire(patience))
+                return true;
+            HandleHorizontalAbortion(L, I, patience);
+            return false;
         } else {
             // To avoid unbounded wait on I->next
             // pred->next = I;
@@ -250,15 +266,18 @@ struct HMCS {
                 // the lock was passed to a descendent.
                 // Does this mean, we should issue a fence just before starting the abort handling?
                 
-                // This means this level is acquired and we can start the next level
-                return HMCS<level-1>::AcquireHelper(L->parent, &(L->node), patience);
+                // Acquire at next level if not at the top level
+                if(L->parent->Acquire(patience))
+                    return true;
+                HandleHorizontalAbortion(L, I, patience);
+                return false;
             }
             
         START_SPIN:
             for(; GetFastClockTick() < patience;){
                 uint64_t myStatus = AtomicLoad(&(I->status)); //I->status;
                 if(myStatus < ACQUIRE_PARENT) {
-                    return NULL;
+                    return true;
                 }
                 if(myStatus == ACQUIRE_PARENT) {
                     // beginning of cohort
@@ -271,7 +290,10 @@ struct HMCS {
                     // Does this mean, we should issue a fence just before starting the abort handling?
                     
                     // This means this level is acquired and we can start the next level
-                    return HMCS<level-1>::AcquireHelper(L->parent, &(L->node), patience);
+                    if(L->parent->Acquire(patience))
+                        return true;
+                    HandleHorizontalAbortion(L, I, patience);
+                    return false;
                 }
                 // spin back; (I->status == WAIT)
             }
@@ -281,7 +303,7 @@ struct HMCS {
             if(prevStatus < ACQUIRE_PARENT){
                 I->status = prevStatus;
                 //Milind: I don't think we need lwsync here because we acquired the lock and there will be a lwsync at the end of the CS.
-                return NULL; // got lock;
+                return true; // got lock;
             }
             if(prevStatus == ACQUIRE_PARENT) {
                 I->status = COHORT_START;
@@ -290,25 +312,23 @@ struct HMCS {
                 // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
                 // the lock was passed to a descendent.
                 // Does this mean, we should issue a fence just before starting the abort handling?
-                return HMCS<level-1>::AcquireHelper(L->parent, &(L->node), patience);
+                if(L->parent->Acquire(patience))
+                    return true;
+                HandleHorizontalAbortion(L, I, patience);
+                return false;
             } else {
-                return I;
+                return false;
             }
         }
     }
     
-    static inline __attribute__((always_inline)) bool Acquire(HNode * L, QNode *I, int64_t patience){
-        QNode * abortedNode = HMCS<level>::AcquireHelper(L, I, patience);
-        if (abortedNode) {
-            // Milind: This is a very tricky place. All indications are that we need a lwsync (COMMIT_ALL_WRITES()) before starting to handle the abort.
-            HandleVerticalAbortion(L, I, abortedNode, patience);
-            return false;
-        }
+    static inline bool Acquire(HNode * L, QNode *I, int64_t patience){
+        bool val = HMCS<level>::AcquireHelper(L, I, patience);
         FORCE_INS_ORDERING();
-        return true;
+        return val;
     }
     
-    static inline __attribute__((always_inline)) void HandleHorizontalPassing(HNode * L, QNode *I, uint64_t value, int64_t patience){
+    static inline void HandleHorizontalPassing(HNode * L, QNode *I, uint64_t value, int64_t patience){
         QNode * prev = NULL;
         while(1) {
             if (I->HasValidSuccessor()) {
@@ -329,7 +349,7 @@ struct HMCS {
                     break;
                 }
             } else {
-                HMCS<level - 1>::ReleaseHelper(L->parent, &(L->node), patience);
+                L->parent->Release(patience);
                 COMMIT_ALL_WRITES();
                 // back from vertical passing
                 DealWithRestOfHorizontal(L, I, prev, patience);
@@ -339,13 +359,13 @@ struct HMCS {
         CleanupReverseChain(prev);
     }
     
-    inline __attribute__((always_inline)) static void ReleaseHelper(HNode * L, QNode *I, int64_t patience) {
+    inline static void ReleaseHelper(HNode * L, QNode *I, int64_t patience) {
         uint64_t curCount = I->status;
         QNode * succ;
         
         // Lower level releases
         if(curCount == L->GetThreshold()) {
-            HMCS<level - 1>::ReleaseHelper(L->parent, &(L->node), patience);
+            L->parent->Release(patience);
             COMMIT_ALL_WRITES();
             // Tap successor at this level and ask to spin acquire next level lock
             QNode * prev = NULL;
@@ -357,208 +377,23 @@ struct HMCS {
         return; // Released
     }
     
-    inline __attribute__((always_inline)) static void Release(HNode * L, QNode *I, int64_t patience) {
+    inline static void Release(HNode * L, QNode *I, int64_t patience) {
         COMMIT_ALL_WRITES();
         HMCS<level>::ReleaseHelper(L, I, patience);
     }
 };
 
 
-template <>
-struct HMCS<1> {
-    static inline __attribute__((always_inline)) QNode* AcquireHelper(HNode * L, QNode *I, int64_t patience) {
-        // Prepare the node for use.
-        uint64_t prevStatus = SWAP(&(I->status), WAIT);
-        QNode * pred;
-        switch(prevStatus){
-            case ABORTED: goto START_SPIN;
-            case READY_TO_USE: break;
-            //case WAIT: assert(0); /* depricated */ break;
-            case UNLOCKED:
-                //while(I->status != READY_TO_USE); No unbounded wait
-                uint64_t statusAtDefaultCase;
-                for(; GetFastClockTick() < patience;) {
-                    if(AtomicLoad(&(I->status)) == READY_TO_USE){
-                        goto USE_QNODE;
-                    }
-                }
-                // Abort
-                // CAS  UNLOCKED, so that next time when we want to use the node, we go through the UNLOCKED case unless it is updated to READY_TO_USE
-                if(CAS(&(I->status), WAIT, UNLOCKED) !=  READY_TO_USE) {
-                    // behavior is analogous to an ABORT, except that we don't set status = ABORTED
-                    // The predecessor who has walked past me is reponsible for chaning the status to READY_TO_USE
-                    return I;
-                } // else I is READY_TO_USE break to USE_QNODE
-                break;
-            default:assert(0 && "Should never reach here");
-        }
-        
-    USE_QNODE:
-        I->next = NULL;
-        // Updates must happen before swap
-        COMMIT_ALL_WRITES();
-        
-        pred = (QNode *) SWAP(&(L->lock), I);
-        if(pred){
-            // Avoid unbounded wait for I->next
-            // pred->next = I;
-            if(SWAP(&(pred->next), I) == CANT_WAIT_FOR_NEXT){
-                // Free pred to be reused
-                AtomicWrite(&(pred->status), READY_TO_USE);
-                
-                // Milind: Is this necessary to ensure that this write strictly precedes the the next write I->status?
-                // I am not sure.
-                
-                
-                // This level is acquired ...
-                I->status = UNLOCKED;
-                return NULL; // got lock;
-            }
-            
-        START_SPIN:
-            for(; GetFastClockTick() < patience;) {
-                uint64_t myStatus = I->status;
-                if(myStatus == UNLOCKED) {
-                    return NULL; // got lock;
-                }
-            }
-            // Abort
-            uint64_t prevStatus = SWAP(&(I->status), ABORTED);
-            if(prevStatus == UNLOCKED) {
-                I->status = UNLOCKED;
-                return NULL; // got lock;
-            }
-            return I;
-        } else {
-            I->status = UNLOCKED;
-            // Milind: I am not sure whether there is need to issue a lwsync fence here
-            // What if I abort here ancestor, and pass the lock to one of my descendants? Will the descendants see this update to I->status?
-            // As a side note, this was not a problem in HMCS because there was a guarantee that an lwsync was issued as a part of the end of CS before
-            // the lock was passed to a descendent.
-            // Does this mean, we should issue a fence just before starting the abort?
-            // More note: I don't think we need the same lwsync at the Acquire<1> level since no one else will share the I node.
-            
-        }
-        return NULL;
-    }
-    
-    static inline __attribute__((always_inline)) bool Acquire(HNode * L, QNode *I, int64_t patience){
-        QNode * abortedNode = AcquireHelper(L, I, patience);
-        if (abortedNode) {
-            // Milind: This is a very tricky place. All indications are we need an lwsync() before beginning an abort. But this one does not really start a handling an abort.
-            return false;
-        }
-        FORCE_INS_ORDERING();
-        return true;
-    }
-    
-    static inline __attribute__((always_inline)) void DealWithRestOfLevel1(HNode * & L, QNode * &I, QNode * & prev, int64_t patience){
-        while (1) {
-            if(!BOOL_CAS(&(L->lock), I, NULL)) {
-                // No unbounded wait...
-                // while (I->next == NULL) ; // spin
-                
-                for(; GetFastClockTick() < patience;) {
-                    if(AtomicLoad(&(I->next)) != NULL)
-                        goto SUCC_ENQED2;
-                }
-
-                
-                if (!BOOL_CAS(&(I->next), NULL, CANT_WAIT_FOR_NEXT)) {
-                    uint64_t prevStatus;
-SUCC_ENQED2:
-                    prevStatus = SWAP(&(I->next->status), UNLOCKED);
-                    if(prevStatus == ABORTED) {
-                        QNode * succ = I->next;
-                        I->next = prev;
-                        prev = I;
-                        I = succ;
-                    } else {
-                        // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
-                        // This is because, we would not have updated the "next" field of this "I" node.
-                        // Hence, there is no reordering between status and next fields.
-                        // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
-                        // However, there is one worry, can the update to the "status" which was UNLOCKED
-                        // get reordered with READY_TO_USE?
-                        AtomicWrite(&(I->status),READY_TO_USE);
-                        return;
-                    }
-                } else {
-                    return;
-                    /*
-                     // Don't do AtomicWrite(&(I->status),READY_TO_USE); Successor is responsible for doing it
-                     */
-                }
-            } else {
-                // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
-                // This is because, we would not have updated the "next" field of this "I" node.
-                // Hence, there is no reordering between status and next fields.
-                // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
-                // However, there is one worry, can the update to the "status" which was UNLOCKED
-                // get reordered with READY_TO_USE?
-                AtomicWrite(&(I->status),READY_TO_USE);
-                return;
-            }
-        }
-        assert(0 && "Should never reach here");
-    }
-    
-    static inline __attribute__((always_inline)) void HandleHorizontalPassing(HNode * L, QNode *I, int64_t patience){
-        QNode * prev = NULL;
-        while(1) {
-            if (I->HasValidSuccessor()) {
-                uint64_t prevStatus = SWAP(&(I->next->status), UNLOCKED);
-                if(prevStatus == ABORTED){
-                    QNode * succ = I->next;
-                    I->next = prev;
-                    prev = I;
-                    I = succ;
-                } else {
-                    // So far, I believe we don't need a COMMIT_ALL_WRITES(); here.
-                    // This is because, we would not have updated the "next" field of this "I" node.
-                    // Hence, there is no reordering between status and next fields.
-                    // If the owner of the node sees READY_TO_USE, there will be no delayed update to the "next" field reaching it.
-                    // However, there is one worry, can the update to the "status" which was UNLOCKED in the SWAP operation
-                    // get reordered with READY_TO_USE? I hope not!
-                    
-                    AtomicWrite(&(I->status),READY_TO_USE);
-                    break;
-                }
-            } else {
-                DealWithRestOfLevel1(L, I, prev, patience);
-                break;
-            }
-        }
-        CleanupReverseChain(prev);
-    }
-    
-    inline __attribute__((always_inline)) static void ReleaseHelper(HNode * L, QNode *I, int64_t patience) {
-        HandleHorizontalPassing(L, I, patience);
-        return;
-    }
-    
-    inline __attribute__((always_inline)) static void Release(HNode * L, QNode *I, int64_t patience) {
-        COMMIT_ALL_WRITES();
-        HMCS<1>::ReleaseHelper(L, I, patience);
-    }
-};
-
 typedef bool (*AcquireFP) (HNode *, QNode *, int64_t);
 typedef void (*ReleaseFP) (HNode *, QNode *, int64_t);
-struct AbortableHMCSLockWrapper{
+struct A_BO_HMCS_T_LockWrapper{
     HNode * curNode;
-#ifdef USE_FP 
-    HNode * rootNode;
-#endif
     AcquireFP myAcquire;
     ReleaseFP myRelease;
     int curDepth;
-#ifdef USE_FP 
-    bool tookFP;
-#endif
     QNode I; // will be initialized to {READY_TO_USE, null}
     
-    inline __attribute__((always_inline)) void* operator new(size_t size) {
+    inline void* operator new(size_t size) {
         void *storage = memalign(CACHE_LINE_SIZE, size);
         if(NULL == storage) {
             throw "allocation fail : no free memory";
@@ -566,12 +401,7 @@ struct AbortableHMCSLockWrapper{
         return storage;
     }
     
-    AbortableHMCSLockWrapper(HNode * h, int depth) : curNode(h), curDepth(depth)
-#ifdef USE_FP 
-,
-tookFP(false)
-#endif
-{
+    A_BO_HMCS_T_LockWrapper(HNode * h, int depth) : curNode(h), curDepth(depth) {
         switch(curDepth){
             case 1:  myAcquire = HMCS<1>::Acquire; myRelease = HMCS<1>::Release; break;
             case 2:  myAcquire = HMCS<2>::Acquire; myRelease = HMCS<2>::Release; break;
@@ -580,22 +410,10 @@ tookFP(false)
             case 5:  myAcquire = HMCS<5>::Acquire; myRelease = HMCS<5>::Release; break;
             default: assert(0 && "NYI");
         }
-#ifdef USE_FP 
-        HNode * tmp;
-        for(tmp = curNode; tmp->parent != NULL; tmp = tmp->parent);
-        	rootNode = tmp;
-#endif //USE_FP
     }
-    inline __attribute__((always_inline)) __attribute__((flatten)) bool Acquire(int64_t patience = UINT64_MAX){
-#ifdef USE_FP 
-        if((tookFP && AtomicLoad(&(I.status)) != READY_TO_USE) /*  Did not do a clean exit on FP*/ ||
-		(AtomicLoad(&(I.status)) == READY_TO_USE && curNode->lock == NULL && rootNode->lock == NULL) ) {
-		// go FP
-		tookFP = true;
-		return HMCS<1>::Acquire(rootNode, &I, patience);
-        } 
-        tookFP = false;
-#endif
+    inline bool Acquire(int64_t patience = UINT64_MAX){
+        return HMCS<2>::Acquire(curNode, &I, patience);
+#if 0
         //myAcquire(curNode, I);
         switch(curDepth){
             case 1:  return HMCS<1>::Acquire(curNode, &I, patience);
@@ -605,16 +423,14 @@ tookFP(false)
             case 5:  return HMCS<5>::Acquire(curNode, &I, patience);
             default: assert(0 && "NYI");
         }
+#endif
+        
     }
     
-    inline __attribute__((always_inline)) __attribute__((flatten)) void Release(uint64_t patience = UINT64_MAX){
+    inline void Release(uint64_t patience = UINT64_MAX){
+        HMCS<2>::Release(curNode, &I, patience);
+#if 0
         //myRelease(curNode, I);
-#ifdef USE_FP 
-	if(tookFP) {
-		HMCS<1>::Release(rootNode, &I, patience); 
-		return;
-	}
-#endif //USE_FP
         switch(curDepth){
             case 1:  HMCS<1>::Release(curNode, &I, patience); break;
             case 2:  HMCS<2>::Release(curNode, &I, patience); break;
@@ -623,6 +439,8 @@ tookFP(false)
             case 5:  HMCS<5>::Release(curNode, &I, patience); break;
             default: assert(0 && "NYI");
         }
+#endif
+        
     }
 };
 
@@ -640,11 +458,13 @@ tookFP(false)
 
 HNode ** lockLocations __attribute__((aligned(CACHE_LINE_SIZE)));
 
-AbortableHMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
+A_BO_HMCS_T_LockWrapper * LockInit(int tid, int maxThreads, int levels, int * participantsAtLevel){
     // Total locks needed = participantsPerLevel[1] + participantsPerLevel[2] + .. participantsPerLevel[levels-1] + 1
+    // only 2 levels supported.
+    assert(levels == 2);
     
     int totalLocksNeeded = 0;
-    for (int i=0; i < levels; i++) {
+    for (int i=0; i < levels-1 /* only 2nd level locks allocated for BO lock at root */ ; i++) {
         totalLocksNeeded += maxThreads / participantsAtLevel[i] ;
     }
 #pragma omp single
@@ -657,16 +477,14 @@ AbortableHMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * p
     // Lock at curLevel l will be initialized by a designated master
     
     int lastLockLocationEnd = 0;
-    for(int curLevel = 0 ; curLevel < levels; curLevel++){
+    for(int curLevel = 0 ; curLevel < levels - 1 /* only 2nd level locks allocated for BO lock at root */ ; curLevel++){
         if (tid%participantsAtLevel[curLevel] == 0) {
             // master, initialize the lock
             int lockLocation = lastLockLocationEnd + tid/participantsAtLevel[curLevel];
             lastLockLocationEnd += maxThreads/participantsAtLevel[curLevel];
             HNode * curLock = new HNode();
             curLock->threshold = GetThresholdAtLevel(curLevel);
-            curLock->parent = NULL;
-            curLock->node.status = READY_TO_USE;
-            curLock->node.next = NULL;
+            curLock->parent = & abLock; /* The BO LOCK */
             //curLock->node = NULL;
             //curLock->node = new QNode();
             curLock->lock = NULL;
@@ -674,6 +492,8 @@ AbortableHMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * p
         }
     }
 #pragma omp barrier
+
+#if 0 // Not needed for BO
     // setup parents
     lastLockLocationEnd = 0;
     for(int curLevel = 0 ; curLevel < levels - 1; curLevel++){
@@ -685,12 +505,14 @@ AbortableHMCSLockWrapper * LockInit(int tid, int maxThreads, int levels, int * p
             lockLocations[lockLocation]->parent = lockLocations[parentLockLocation];
         }
     }
+#endif
+    
 #pragma omp barrier
     // return the lock to each thread
-    return new AbortableHMCSLockWrapper(lockLocations[tid/participantsAtLevel[0]], levels);
+    return new A_BO_HMCS_T_LockWrapper(lockLocations[tid/participantsAtLevel[0]], levels);
 }
 
-#define UNDERLYING_LOCK AbortableHMCSLockWrapper
+#define UNDERLYING_LOCK A_BO_HMCS_T_LockWrapper
 
 #ifdef SPLAY_TREE_DRIVER
 #include "splay_driver.cpp"
